@@ -134,17 +134,104 @@ test('dotCount maps movement strength to 0–3 dots', () => {
   assert.equal(E.dotCount(1), 3);
 });
 
-test('sceneryOffset moves dots like the world outside the window', () => {
-  const left = E.sceneryOffset(0, 2); // turning left
-  assert.ok(left.dx > 0 && left.dy === 0, 'left turn -> dots slide right');
-  const right = E.sceneryOffset(0, -2);
-  assert.ok(right.dx < 0, 'right turn -> dots slide left');
-  assert.ok(E.sceneryOffset(2, 0).dy > 0, 'speeding up -> dots slide down');
-  assert.ok(E.sceneryOffset(-2, 0).dy < 0, 'braking -> dots slide up');
-  assert.equal(E.sceneryOffset(0.1, 0.1).opacity, 0, 'tiny bumps stay invisible');
-  assert.equal(E.sceneryOffset(-3, 0).opacity, 1);
-  assert.equal(E.sceneryOffset(-50, 0).dy, -44, 'offset is capped');
-  assert.deepEqual(E.sceneryOffset(NaN, undefined), { dx: 0, dy: 0, opacity: 0 });
+/* -------------------------------------------------------- SceneryModel */
+
+// Drive the model at 60 Hz for `sec` seconds with a constant car motion.
+function runScenery(model, sec, fast, { gpsSpeed = null, gpsAccel = 0, t0 = 0 } = {}) {
+  let out;
+  let v = gpsSpeed;
+  const dt = 1000 / 60;
+  let t = t0;
+  for (let i = 0; i < Math.round((sec * 1000) / dt); i++) {
+    t += dt;
+    if (v !== null && i % 60 === 0) {
+      model.gps({ speed: v, accuracy: 5, fixT: t, now: t });
+      v += gpsAccel;
+    }
+    model.motion(fast, t);
+    out = model.step(dt / 1000);
+  }
+  return { out, t };
+}
+
+test('SceneryModel: left turn sweeps dots right, right turn sweeps them left', () => {
+  const m = new E.SceneryModel();
+  const left = runScenery(m, 1, { long: 0, lat: 2, yaw: 20 }).out;
+  assert.ok(left.vx > 80 && left.vy === 0, JSON.stringify(left));
+  assert.ok(left.scrollX > 60, 'dots kept moving through the turn');
+  assert.ok(left.opacity > 0.9);
+  const r = new E.SceneryModel();
+  assert.ok(runScenery(r, 1, { long: 0, lat: -2, yaw: -20 }).out.vx < -80);
+});
+
+test('SceneryModel: braking streams dots up, speeding up streams them down', () => {
+  const brake = runScenery(new E.SceneryModel(), 1, { long: -3, lat: 0, yaw: 0 }).out;
+  assert.ok(brake.vy < -60 && brake.vx === 0, JSON.stringify(brake));
+  const go = runScenery(new E.SceneryModel(), 1, { long: 2, lat: 0, yaw: 0 }).out;
+  assert.ok(go.vy > 40);
+});
+
+test('SceneryModel: steady straight driving shows nothing; dots fade ~1–2 s after a maneuver', () => {
+  const m = new E.SceneryModel();
+  let r = runScenery(m, 3, { long: 0.15, lat: 0.1, yaw: 1 }); // road texture, lane drift
+  assert.equal(r.out.opacity, 0);
+  assert.equal(r.out.vx, 0);
+  assert.equal(r.out.vy, 0);
+  r = runScenery(m, 1, { long: 0, lat: 2, yaw: 20 }, { t0: r.t });
+  assert.ok(r.out.opacity > 0.9);
+  r = runScenery(m, 0.5, { long: 0, lat: 0, yaw: 0 }, { t0: r.t });
+  assert.ok(r.out.opacity > 0.2, 'still fading, not cut off');
+  r = runScenery(m, 3, { long: 0, lat: 0, yaw: 0 }, { t0: r.t });
+  assert.equal(r.out.opacity, 0);
+});
+
+test('SceneryModel: dots appear within ~0.15 s of a sudden maneuver', () => {
+  const m = new E.SceneryModel();
+  const r = runScenery(m, 0.15, { long: -3, lat: 0, yaw: 0 });
+  assert.ok(r.out.opacity > 0.6, `opacity ${r.out.opacity.toFixed(2)}`);
+});
+
+test('SceneryModel: a long hill does not leave dots streaming (GPS says speed is constant)', () => {
+  const m = new E.SceneryModel();
+  // 5% grade reads as a constant 0.49 m/s² "push" to the accelerometer.
+  const early = runScenery(m, 1, { long: 0.49, lat: 0, yaw: 0 }, { gpsSpeed: 15, gpsAccel: 0 });
+  assert.ok(early.out.vy > 0, 'first reads as speeding up');
+  const late = runScenery(m, 25, { long: 0.49, lat: 0, yaw: 0 }, { gpsSpeed: 15, gpsAccel: 0, t0: early.t });
+  assert.equal(late.out.vy, 0);
+  assert.equal(late.out.opacity, 0);
+});
+
+test('SceneryModel: real braking survives the hill correction (GPS agrees it is braking)', () => {
+  const m = new E.SceneryModel();
+  const r = runScenery(m, 4, { long: -3, lat: 0, yaw: 0 }, { gpsSpeed: 20, gpsAccel: -3 });
+  assert.ok(r.out.vy < -80, `still streaming up after 4 s of braking: ${r.out.vy.toFixed(0)}`);
+});
+
+test('SceneryModel: without a gyroscope, turn rate comes from sideways push and speed', () => {
+  const m = new E.SceneryModel();
+  m.gps({ speed: 10, accuracy: 5, fixT: 0, now: 0 });
+  const r = runScenery(m, 1, { long: 0, lat: 3, yaw: null }).out; // 3 m/s² at 10 m/s = 17°/s left
+  assert.ok(r.vx > 60, JSON.stringify(r));
+});
+
+test('SceneryModel: detects a browser reporting the gyroscope in rad/s', () => {
+  const m = new E.SceneryModel();
+  m.gps({ speed: 10, accuracy: 5, fixT: 0, now: 0 });
+  // True turn ~17°/s, but the browser reports 0.3 (rad/s).
+  const r = runScenery(m, 1.5, { long: 0, lat: 3, yaw: 0.3 }).out;
+  assert.ok(m.gyroScale > 50, 'switched to rad/s');
+  assert.ok(r.vx > 60, JSON.stringify(r));
+});
+
+test('MotionProcessor reports turn rate from the gyroscope, independent of mount direction', () => {
+  const p = new E.MotionProcessor({ mount: 'upright' });
+  p.calibrate(still('upright')); // up = +y
+  let out;
+  for (let t = 0; t <= 500; t += 16) out = p.push(reading(p, 'upright', 0, 0), t, [0, 20, 0]);
+  assert.ok(Math.abs(out.fast.yaw - 20) < 0.5, `yaw ${out.fast.yaw}`);
+  p.reverse(); // backwards mount detected later: turn direction must not flip
+  for (let t = 516; t <= 1000; t += 16) out = p.push(reading(p, 'upright', 0, 0), t, [0, 20, 0]);
+  assert.ok(Math.abs(out.fast.yaw - 20) < 0.5);
 });
 
 /* ----------------------------------------------------- MotionProcessor */

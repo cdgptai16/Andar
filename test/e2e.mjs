@@ -86,6 +86,8 @@ async function startMotionFeed(page) {
       window.dispatchEvent(
         new DeviceMotionEvent('devicemotion', {
           accelerationIncludingGravity: { x: window.__accX || 0.02 * Math.sin(k), y: 9.81, z: window.__accZ || 0.03 },
+          // Upright phone: "up" is +y, so turning shows up as gamma (deg/s).
+          rotationRate: { alpha: 0, beta: 0, gamma: window.__yaw || 0 },
         })
       );
     }, 20);
@@ -177,19 +179,44 @@ await check('cues-on ride shows turn cues, saves, and schedules a cues-off ride 
     window.__andar.hapticPattern('right', 3),
   ]);
   assert.deepEqual(pat, [[90], [90, 90, 90], [260, 110, 260, 110, 260]]);
-  // Scenery dots: braking slides them up, a left turn slides them right, calm hides them.
+  // Scenery dots: braking streams them up, a left turn sweeps them right, steady road hides them.
   const scen = () => page.evaluate(() => {
-    const el = document.querySelector('#scenery');
-    return { dx: Number(el.dataset.dx), dy: Number(el.dataset.dy), op: Number(el.style.opacity) };
+    const d = document.querySelector('#scenery').dataset;
+    return { vx: Number(d.vx), vy: Number(d.vy), sx: Number(d.scrollX), sy: Number(d.scrollY),
+      op: Number(document.querySelector('#scenery').style.opacity) };
   });
   await page.evaluate(() => (window.__accZ = 2.8)); // upright phone: +z = car slowing down
-  await page.waitForFunction(() => Number(document.querySelector('#scenery').dataset.dy) < -20, null, { timeout: 4000 });
-  let sc = await scen();
-  assert.ok(sc.op > 0.5 && Math.abs(sc.dx) < 3, JSON.stringify(sc));
-  await page.evaluate(() => { window.__accZ = 0.03; window.__accX = -2.5; }); // car turning left
-  await page.waitForFunction(() => Number(document.querySelector('#scenery').dataset.dx) > 20, null, { timeout: 4000 });
-  await page.evaluate(() => (window.__accX = 0));
-  await page.waitForFunction(() => Number(document.querySelector('#scenery').style.opacity) === 0, null, { timeout: 4000 });
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').dataset.vy) < -50, null, { timeout: 4000 });
+  let a1 = await scen();
+  await page.waitForTimeout(300);
+  let a2 = await scen();
+  assert.ok(a2.sy < a1.sy - 10, `dots keep streaming up while braking: ${a1.sy} -> ${a2.sy}`);
+  assert.ok(a2.op > 0.5 && a2.vx === 0, JSON.stringify(a2));
+  await page.evaluate(() => { window.__accZ = 0.03; window.__yaw = 20; }); // gyroscope: turning left
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').dataset.vx) > 80, null, { timeout: 4000 });
+  a1 = await scen();
+  await page.waitForTimeout(300);
+  a2 = await scen();
+  assert.ok(a2.sx > a1.sx + 20, `dots sweep right through the turn: ${a1.sx} -> ${a2.sx}`);
+  await page.evaluate(() => (window.__yaw = 0));
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').dataset.vx) === 0, null, { timeout: 2000 });
+  a1 = await scen();
+  await page.waitForTimeout(300);
+  a2 = await scen();
+  assert.equal(a2.sx, a1.sx, 'dots stand still on a steady road');
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').style.opacity) === 0, null, { timeout: 6000 });
+  // The canvas actually draws dots when motion is shown.
+  await page.evaluate(() => (window.__yaw = 25));
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').style.opacity) > 0.8, null, { timeout: 3000 });
+  const lit = await page.evaluate(() => {
+    const c = document.querySelector('#scenery-canvas');
+    const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 3; i < px.length; i += 4) if (px[i] > 100) n++;
+    return n;
+  });
+  assert.ok(lit > 500, `canvas has dots drawn: ${lit} lit pixels`);
+  await page.evaluate(() => (window.__yaw = 0));
   await endAndSave(page);
 
   const ride = await page.evaluate(() => window.__andar.store.rides[0]);

@@ -153,15 +153,10 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 #ride.color-levels #turn-cue[data-level="2"] { color: var(--lvl2); }
 #ride.color-levels #turn-cue[data-level="3"] { color: var(--lvl3); }
 
-/* Movement happening now: "scenery" dots along both side edges that slide like the world
-   outside the window (car turns left -> dots slide right; speeds up -> dots slide down). */
-.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 100ms linear; }
-.scenery .field { position: absolute; top: 12%; bottom: 18%; display: grid; grid-template-columns: repeat(2, 10px); grid-auto-rows: 1fr; gap: 0 16px; align-items: center; will-change: transform; }
-.scenery .field.l { left: calc(48px + env(safe-area-inset-left, 0px)); }
-.scenery .field.r { right: calc(48px + env(safe-area-inset-right, 0px)); }
-/* A turn warning outranks the moving dots: dim them while chevrons show. */
-#ride:has(#turn-cue.show) .scenery .field { filter: opacity(0.2); }
-.scenery i { width: 10px; height: 10px; border-radius: 50%; background: var(--cue); display: block; }
+/* Movement happening now: iPhone-style "scenery" dots in bands around all four edges.
+   They stream while the car turns or changes speed, then stand still and fade out. */
+.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; }
+.scenery canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 /* Rating sheet */
 #rate { position: absolute; inset: 0; z-index: 10; background: var(--bg); display: grid; align-content: center; }
@@ -275,7 +270,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
 <!-- ============================== RIDE ============================== -->
 <section class="screen" id="ride" hidden>
-  <div class="scenery" id="scenery"><div class="field l"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="field r"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  <div class="scenery" id="scenery"><canvas id="scenery-canvas" aria-hidden="true"></canvas></div>
 
   <div id="turn-cue" data-dir="left" data-level="2">
     <div class="chev l"><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -404,7 +399,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     </div>
     <div class="card">
       <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left turns buzz short, right turns buzz long. The number of buzzes matches the chevrons: 1 slight, 2 normal, 3 sharp. Arriving: one very long buzz.</span></span></label>
-      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Dots along both sides move like the scenery outside: when the car turns left they slide right, when it speeds up they slide down, when it brakes they slide up.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Dots around the edges move like the scenery outside: they sweep right while the car turns left, stream up while it brakes, and stream down while it speeds up. On a steady road they stop and fade away.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-color"><span><b>Color by strength (phone only)</b><br><span class="muted small">Green, amber, orange for 1, 2, 3 chevrons. The glasses show green only, so the count is what matters. If you turn this on, keep it on for the whole trial.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-debug"><span><b>Show sensor numbers</b><br><span class="muted small">For troubleshooting.</span></span></label>
     </div>

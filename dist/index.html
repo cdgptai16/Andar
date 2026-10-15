@@ -153,15 +153,10 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 #ride.color-levels #turn-cue[data-level="2"] { color: var(--lvl2); }
 #ride.color-levels #turn-cue[data-level="3"] { color: var(--lvl3); }
 
-/* Movement happening now: "scenery" dots along both side edges that slide like the world
-   outside the window (car turns left -> dots slide right; speeds up -> dots slide down). */
-.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 100ms linear; }
-.scenery .field { position: absolute; top: 12%; bottom: 18%; display: grid; grid-template-columns: repeat(2, 10px); grid-auto-rows: 1fr; gap: 0 16px; align-items: center; will-change: transform; }
-.scenery .field.l { left: calc(48px + env(safe-area-inset-left, 0px)); }
-.scenery .field.r { right: calc(48px + env(safe-area-inset-right, 0px)); }
-/* A turn warning outranks the moving dots: dim them while chevrons show. */
-#ride:has(#turn-cue.show) .scenery .field { filter: opacity(0.2); }
-.scenery i { width: 10px; height: 10px; border-radius: 50%; background: var(--cue); display: block; }
+/* Movement happening now: iPhone-style "scenery" dots in bands around all four edges.
+   They stream while the car turns or changes speed, then stand still and fade out. */
+.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; }
+.scenery canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 /* Rating sheet */
 #rate { position: absolute; inset: 0; z-index: 10; background: var(--bg); display: grid; align-content: center; }
@@ -275,7 +270,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
 <!-- ============================== RIDE ============================== -->
 <section class="screen" id="ride" hidden>
-  <div class="scenery" id="scenery"><div class="field l"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="field r"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  <div class="scenery" id="scenery"><canvas id="scenery-canvas" aria-hidden="true"></canvas></div>
 
   <div id="turn-cue" data-dir="left" data-level="2">
     <div class="chev l"><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -404,7 +399,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     </div>
     <div class="card">
       <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left turns buzz short, right turns buzz long. The number of buzzes matches the chevrons: 1 slight, 2 normal, 3 sharp. Arriving: one very long buzz.</span></span></label>
-      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Dots along both sides move like the scenery outside: when the car turns left they slide right, when it speeds up they slide down, when it brakes they slide up.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Dots around the edges move like the scenery outside: they sweep right while the car turns left, stream up while it brakes, and stream down while it speeds up. On a steady road they stop and fade away.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-color"><span><b>Color by strength (phone only)</b><br><span class="muted small">Green, amber, orange for 1, 2, 3 chevrons. The glasses show green only, so the count is what matters. If you turn this on, keep it on for the whole trial.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-debug"><span><b>Show sensor numbers</b><br><span class="muted small">For troubleshooting.</span></span></label>
     </div>
@@ -513,17 +508,128 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     return { dir, strength, level: LEVEL[strength], label };
   }
 
-  // "Scenery" dots (like iPhone Vehicle Motion Cues): the dots behave like the world outside
-  // the window. Car turns left -> dots slide right. Car speeds up -> dots slide down; brakes -> up.
-  // long/lat in m/s² (lat > 0 = turning left). Returns pixel offsets and an opacity that
-  // fades the dots in only when there is motion worth showing.
-  function sceneryOffset(long, lat, { gain = 14, max = 44, fadeFrom = 0.35, fullAt = 1.4 } = {}) {
-    const clamp = (v) => Math.max(-max, Math.min(max, v));
-    const dx = clamp((Number.isFinite(lat) ? lat : 0) * gain);
-    const dy = clamp((Number.isFinite(long) ? long : 0) * gain);
-    const mag = Math.hypot(Number.isFinite(long) ? long : 0, Number.isFinite(lat) ? lat : 0);
-    const opacity = Math.max(0, Math.min(1, (mag - fadeFrom) / (fullAt - fadeFrom)));
-    return { dx, dy, opacity };
+  /*
+   * SceneryModel: iPhone-style "vehicle motion cues" on the phone screen.
+   *
+   * Peripheral vision notices MOTION, not position, so the dots stream continuously while
+   * the car is changing speed or direction, and stand still (then fade) when it isn't:
+   *   - Turning: dots sweep sideways at a speed set by the gyroscope's turn rate, the same
+   *     rotation the inner ear's canals feel. Left turn -> dots sweep right.
+   *   - Speed changes: dots stream up when braking, down when speeding up, at a speed set by
+   *     how hard the car is pushing you (what the inner ear's otoliths feel).
+   *   - Hills and a tilted mount look like "constant acceleration" to an accelerometer. A slow
+   *     bias tracker removes them: it compares the sensor with GPS speed changes when GPS is
+   *     good, and otherwise assumes the car's long-run average push is zero.
+   *   - Small wobble (lane drift, road texture) sits inside a dead zone and shows nothing.
+   *   - Dots fade in within ~0.1 s of real motion and fade out ~1.2 s after it stops.
+   */
+  const SCENERY_DEFAULTS = {
+    pxPerDegPerSec: 6, // a 20°/s city turn sweeps dots at 120 px/s
+    pxPerMs2: 45, // a 3 m/s² brake streams dots at 135 px/s
+    maxPxPerSec: 260,
+    yawDeadband: 2.5, // deg/s
+    accelDeadband: 0.35, // m/s²
+    yawFull: 12, // deg/s where dots reach full strength
+    accelFull: 1.6, // m/s² where dots reach full strength
+    attackSec: 0.08,
+    releaseSec: 1.2,
+    biasTauSec: 6,
+    gpsTauSec: 1.0,
+    gpsMaxAgeMs: 2500,
+    gpsMaxAccuracy: 25,
+  };
+
+  const deadzone = (v, d) => (Math.abs(v) <= d ? 0 : Math.sign(v) * (Math.abs(v) - d));
+
+  class SceneryModel {
+    constructor(opts = {}) {
+      this.o = { ...SCENERY_DEFAULTS, ...opts };
+      this.scrollX = 0;
+      this.scrollY = 0;
+      this.env = 0;
+      this.bias = 0;
+      this.longC = 0;
+      this.yawEff = 0;
+      this.lastMotionT = null;
+      this.gpsAccel = 0;
+      this.gpsPrev = null;
+      this.gpsAt = -Infinity; // receipt time on the motion clock
+      this.speed = null;
+      // Gyroscope unit check: some browsers have reported rad/s instead of deg/s.
+      this.gyroScale = 1;
+      this.gyroEvidence = { strongTurns: 0, tinyYaw: 0 };
+    }
+
+    // GPS fix: speed m/s, accuracy m, fixT = fix timestamp (ms), now = motion clock (ms).
+    gps({ speed, accuracy, fixT, now }) {
+      if (!Number.isFinite(speed) || (Number.isFinite(accuracy) && accuracy > this.o.gpsMaxAccuracy)) return;
+      this.speed = speed;
+      if (this.gpsPrev && fixT > this.gpsPrev.t) {
+        const dt = (fixT - this.gpsPrev.t) / 1000;
+        if (dt >= 0.3 && dt <= 4) {
+          const inst = (speed - this.gpsPrev.speed) / dt;
+          const k = 1 - Math.exp(-dt / this.o.gpsTauSec);
+          this.gpsAccel += k * (inst - this.gpsAccel);
+          this.gpsAt = now;
+        }
+      }
+      this.gpsPrev = { speed, t: fixT };
+    }
+
+    // fast: { long, lat, yaw } from MotionProcessor (m/s², m/s², deg/s or null); t: ms.
+    motion(fast, t) {
+      if (!fast) return;
+      const dt = this.lastMotionT === null ? 0 : Math.max(0, Math.min(0.5, (t - this.lastMotionT) / 1000));
+      this.lastMotionT = t;
+      const long = Number.isFinite(fast.long) ? fast.long : 0;
+      const lat = Number.isFinite(fast.lat) ? fast.lat : 0;
+      const gpsFresh = t - this.gpsAt <= this.o.gpsMaxAgeMs;
+      const ref = gpsFresh ? this.gpsAccel : 0;
+      if (dt > 0) this.bias += (1 - Math.exp(-dt / this.o.biasTauSec)) * (long - ref - this.bias);
+      this.longC = long - this.bias;
+
+      if (Number.isFinite(fast.yaw)) {
+        this._checkGyroUnits(fast.yaw, lat);
+        this.yawEff = fast.yaw * this.gyroScale;
+      } else if (Number.isFinite(this.speed) && this.speed > 3) {
+        // No gyroscope: a turn's sideways push equals speed x turn rate.
+        this.yawEff = (lat / this.speed) * (180 / Math.PI);
+      } else {
+        this.yawEff = (lat / 8) * (180 / Math.PI); // assume ~30 km/h
+      }
+    }
+
+    _checkGyroUnits(yaw, lat) {
+      if (this.gyroScale !== 1 || !(this.speed > 4) || Math.abs(lat) < 1.5) return;
+      const expected = Math.abs((lat / this.speed) * (180 / Math.PI)); // deg/s
+      this.gyroEvidence.strongTurns += 1;
+      if (Math.abs(yaw) < expected / 20) this.gyroEvidence.tinyYaw += 1;
+      if (this.gyroEvidence.strongTurns >= 30 && this.gyroEvidence.tinyYaw / this.gyroEvidence.strongTurns > 0.8) {
+        this.gyroScale = 180 / Math.PI; // browser is reporting rad/s
+      }
+    }
+
+    // Advance the dot field by dtSec. Returns scroll position (px), velocity (px/s), opacity.
+    step(dtSec) {
+      const o = this.o;
+      const dt = Math.max(0, Math.min(0.1, dtSec));
+      const yaw = deadzone(this.yawEff, o.yawDeadband);
+      const acc = deadzone(this.longC, o.accelDeadband);
+      const clampV = (v) => Math.max(-o.maxPxPerSec, Math.min(o.maxPxPerSec, v));
+      const vx = clampV(yaw * o.pxPerDegPerSec); // left turn (+) -> dots sweep right (+x)
+      const vy = clampV(acc * o.pxPerMs2); // braking (-) -> dots stream up (-y)
+      this.scrollX = (this.scrollX + vx * dt) % 100000;
+      this.scrollY = (this.scrollY + vy * dt) % 100000;
+      const activity = Math.min(
+        1,
+        Math.max(Math.abs(yaw) / (o.yawFull - o.yawDeadband), Math.abs(acc) / (o.accelFull - o.accelDeadband))
+      );
+      const tau = activity > this.env ? o.attackSec : o.releaseSec;
+      if (dt > 0) this.env += (1 - Math.exp(-dt / tau)) * (activity - this.env);
+      const e = Math.max(0, Math.min(1, this.env));
+      const opacity = e < 0.06 ? 0 : e * e * (3 - 2 * e); // below 6% strength: fully off
+      return { scrollX: this.scrollX, scrollY: this.scrollY, vx, vy, opacity };
+    }
   }
 
   // Motion-cue intensity (0..1) -> number of dots (0–3). Used for the glasses lens,
@@ -709,6 +815,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       this.flip = 1; // -1 if GPS shows the mount is backwards
       this.f = { long: 0, lat: 0 };
       this.fast = { long: 0, lat: 0 };
+      this.yaw = null; // deg/s about the vertical axis, + = turning left (null: no gyroscope)
       this.lastT = null;
       this.active = { long: false, lat: false };
     }
@@ -739,12 +846,15 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       this.left = vec.unit(vec.cross(this.up, this.forward));
       this.f = { long: 0, lat: 0 };
       this.fast = { long: 0, lat: 0 };
+      this.yaw = null;
       this.lastT = null;
       return { tiltDeg: Math.round((Math.acos(Math.min(1, vec.norm(horiz))) * 180) / Math.PI) };
     }
 
-    // a: [x,y,z] accelerationIncludingGravity, t: ms. Returns car-frame values and cue intensities.
-    push(a, t) {
+    // a: [x,y,z] accelerationIncludingGravity, t: ms.
+    // rot (optional): rotationRate as [beta, gamma, alpha] = deg/s about device x, y, z.
+    // Returns car-frame values and cue intensities.
+    push(a, t, rot) {
       if (!this.calibrated) return null;
       const lin = vec.sub(a, vec.scale(this.up, this.g));
       const long = vec.dot(lin, this.forward) * this.flip;
@@ -757,10 +867,16 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       this.f.lat += k * (lat - this.f.lat);
       this.fast.long += kf * (long - this.fast.long);
       this.fast.lat += kf * (lat - this.fast.lat);
+      if (rot && rot.every(Number.isFinite)) {
+        // Turning = rotation about the vertical. Uses only "up", so it is right even if the
+        // phone is mounted backwards.
+        const yawNow = vec.dot(rot, this.up);
+        this.yaw = this.yaw === null ? yawNow : this.yaw + kf * (yawNow - this.yaw);
+      }
       return {
         long: this.f.long,
         lat: this.f.lat,
-        fast: { long: this.fast.long, lat: this.fast.lat },
+        fast: { long: this.fast.long, lat: this.fast.lat, yaw: this.yaw },
         cue: this._cue(),
       };
     }
@@ -998,7 +1114,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     projectOnSegment,
     classifyManeuver,
     dotCount,
-    sceneryOffset,
+    SceneryModel,
     buildRoute,
     RouteTracker,
     MotionProcessor,
@@ -1145,31 +1261,118 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     clearTimeout(turnTimer);
     turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
-  // Scenery dots: drawn once per animation frame from the latest smoothed motion,
-  // so sensor bursts never queue up visual work.
-  let sceneryTarget = null;
-  let sceneryRaf = null;
-  function setScenery(motionOut) {
-    sceneryTarget = motionOut;
-    if (sceneryRaf === null) sceneryRaf = requestAnimationFrame(drawScenery);
+  // Scenery dots: a canvas redrawn every screen frame from session.scenery (engine
+  // SceneryModel). Dots sit on a lattice that scrolls with the car and is only drawn inside
+  // bands around the four edges, so it reads as scenery passing in your peripheral vision.
+  const scenery = { raf: null, lastTs: null, ctx: null, w: 0, h: 0, bands: null, color: '#46d9b4' };
+  const DOT_GAP = 26;
+  const DOT_R = 3.5;
+
+  function layoutScenery() {
+    const canvas = $('#scenery-canvas');
+    const ride = $('#ride');
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const w = ride.clientWidth;
+    const h = ride.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const hudBottom = $('#ride .hud').getBoundingClientRect().bottom - ride.getBoundingClientRect().top;
+    const ctlTop = $('#ride .controls').getBoundingClientRect().top - ride.getBoundingClientRect().top;
+    const top = hudBottom + 8;
+    const bottom = ctlTop - 8;
+    const side = Math.max(44, Math.min(84, w * 0.16));
+    const band = Math.max(44, Math.min(80, h * 0.09));
+    scenery.ctx = ctx;
+    scenery.w = w;
+    scenery.h = h;
+    // [x0, x1, y0, y1, inner edge for fading: 'r' | 'l' | 'b' | 't']
+    scenery.bands = [
+      [0, side, top, bottom, 'r'],
+      [w - side, w, top, bottom, 'l'],
+      [side, w - side, top, top + band, 'b'],
+      [side, w - side, bottom - band, bottom, 't'],
+    ];
+    scenery.color = getComputedStyle(document.documentElement).getPropertyValue('--cue').trim() || scenery.color;
   }
-  function drawScenery() {
-    sceneryRaf = null;
-    const el = $('#scenery');
-    if (!sceneryTarget) {
-      el.style.opacity = '0';
-      $$('#scenery .field').forEach((f) => (f.style.transform = 'translate(0px, 0px)'));
-      el.dataset.dx = '0';
-      el.dataset.dy = '0';
-      return;
+
+  // While a turn warning shows, leave a clear gap where the chevrons are so both stay readable.
+  function chevronGaps() {
+    if (!$('#turn-cue').classList.contains('show')) return [];
+    const base = $('#ride').getBoundingClientRect();
+    return $$('#turn-cue .chev')
+      .filter((el) => getComputedStyle(el).display !== 'none')
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return [r.left - base.left - 10, r.right - base.left + 10, r.top - base.top - 10, r.bottom - base.top + 10];
+      });
+  }
+
+  function drawScenery(out) {
+    const { ctx, bands } = scenery;
+    ctx.clearRect(0, 0, scenery.w, scenery.h);
+    if (out.opacity <= 0) return;
+    const gaps = chevronGaps();
+    const ox = ((out.scrollX % DOT_GAP) + DOT_GAP) % DOT_GAP;
+    const oy = ((out.scrollY % DOT_GAP) + DOT_GAP) % DOT_GAP;
+    const FADE = 14;
+    ctx.fillStyle = scenery.color;
+    for (const [x0, x1, y0, y1, inner] of bands) {
+      const i0 = Math.floor((x0 - ox) / DOT_GAP);
+      const i1 = Math.ceil((x1 - ox) / DOT_GAP);
+      const j0 = Math.floor((y0 - oy) / DOT_GAP);
+      const j1 = Math.ceil((y1 - oy) / DOT_GAP);
+      for (let i = i0; i <= i1; i++) {
+        const x = ox + i * DOT_GAP;
+        if (x < x0 || x > x1) continue;
+        for (let j = j0; j <= j1; j++) {
+          const y = oy + j * DOT_GAP;
+          if (y < y0 || y > y1) continue;
+          if (gaps.some(([gx0, gx1, gy0, gy1]) => x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1)) continue;
+          // Fade dots near the band's inner edge so they glide in and out instead of popping.
+          const d = inner === 'r' ? x1 - x : inner === 'l' ? x - x0 : inner === 'b' ? y1 - y : y - y0;
+          ctx.globalAlpha = Math.min(1, d / FADE) * 0.9;
+          ctx.beginPath();
+          ctx.arc(x, y, DOT_R, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
-    const o = E.sceneryOffset(sceneryTarget.long, sceneryTarget.lat);
-    el.style.opacity = o.opacity.toFixed(2);
-    const t = `translate(${o.dx.toFixed(1)}px, ${o.dy.toFixed(1)}px)`;
-    $$('#scenery .field').forEach((f) => (f.style.transform = t));
-    el.dataset.dx = o.dx.toFixed(1);
-    el.dataset.dy = o.dy.toFixed(1);
+    ctx.globalAlpha = 1;
   }
+
+  function sceneryFrame(ts) {
+    scenery.raf = requestAnimationFrame(sceneryFrame);
+    if (!session || !session.scenery) return;
+    const dt = scenery.lastTs === null ? 0 : (ts - scenery.lastTs) / 1000;
+    scenery.lastTs = ts;
+    const out = session.scenery.step(dt);
+    const el = $('#scenery');
+    el.style.opacity = out.opacity.toFixed(3);
+    el.dataset.vx = out.vx.toFixed(1);
+    el.dataset.vy = out.vy.toFixed(1);
+    el.dataset.scrollX = out.scrollX.toFixed(1);
+    el.dataset.scrollY = out.scrollY.toFixed(1);
+    drawScenery(out);
+  }
+
+  function startScenery() {
+    stopScenery();
+    layoutScenery();
+    scenery.lastTs = null;
+    scenery.raf = requestAnimationFrame(sceneryFrame);
+  }
+  function stopScenery() {
+    if (scenery.raf !== null) cancelAnimationFrame(scenery.raf);
+    scenery.raf = null;
+    const el = $('#scenery');
+    el.style.opacity = '0';
+    if (scenery.ctx) scenery.ctx.clearRect(0, 0, scenery.w, scenery.h);
+  }
+  window.addEventListener('resize', () => {
+    if (scenery.raf !== null) layoutScenery();
+  });
 
   /* ------------------------------------------------------------- Sensors */
 
@@ -1213,8 +1416,11 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     if (!a || !Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(a.z)) return;
     motion.seen = true;
     const sample = [a.x, a.y, a.z];
+    const r = e.rotationRate;
+    // rotationRate alpha/beta/gamma = deg/s about device z/x/y; reorder to [x, y, z].
+    const rot = r && [r.beta, r.gamma, r.alpha].every(Number.isFinite) ? [r.beta, r.gamma, r.alpha] : null;
     const t = performance.now();
-    motion.listeners.forEach((fn) => fn(sample, t));
+    motion.listeners.forEach((fn) => fn(sample, t, rot));
   }
   async function startMotion() {
     // iPhone needs an explicit permission tap; Android does not.
@@ -1302,6 +1508,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       tracker: route ? new E.RouteTracker(route, { leadSec: store.settings.leadSec }) : null,
       motionProc,
       forwardCheck: new E.ForwardCheck(),
+      scenery: null,
       startedAt: Date.now(),
       ratings: [],
       cues: [],
@@ -1327,6 +1534,16 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     session.fixes += 1;
     session.lastFixAt = Date.now();
     updateRideGps(fix);
+    if (session.scenery) {
+      let speed = fix.speed;
+      const prev = session.prevFix;
+      if (!Number.isFinite(speed) && prev && fix.t > prev.t) {
+        const dt = (fix.t - prev.t) / 1000;
+        if (dt >= 0.3 && dt <= 4) speed = E.haversine(prev, fix) / dt;
+      }
+      session.scenery.gps({ speed, accuracy: fix.accuracy, fixT: fix.t, now: performance.now() });
+    }
+    session.prevFix = fix;
     if (session.motionProc && session.lastMotion && !session.flipped) {
       if (session.forwardCheck.add(fix.speed, fix.t, session.lastMotion.long)) {
         session.motionProc.reverse();
@@ -1363,14 +1580,14 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
   }
 
   let motionPeak = { long: 0, lat: 0 };
-  function handleMotion(sample, t) {
+  function handleMotion(sample, t, rot) {
     if (!session || session.ended || !session.motionProc) return;
-    const out = session.motionProc.push(sample, t);
+    const out = session.motionProc.push(sample, t, rot);
     if (!out) return;
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setScenery(out.fast);
+    if (session.scenery) session.scenery.motion(out.fast, t);
   }
 
   function updateRideGps(fix) {
@@ -1449,8 +1666,11 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     if (!session.tracker && session.condition === 'cues') {
       $('#ride-note').textContent += session.motionProc ? 'No destination: movement cues only.' : '';
     }
-    setScenery(null);
     $('#ride').classList.toggle('color-levels', !!store.settings.colorLevels);
+    if (session.motionProc && cuesVisible() && store.settings.motionCues) {
+      session.scenery = new E.SceneryModel();
+      startScenery();
+    }
     keepAwake(true);
     gps.listeners.add(handleFix);
     motion.listeners.add(handleMotion);
@@ -1485,7 +1705,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     gps.listeners.delete(handleFix);
     motion.listeners.delete(handleMotion);
     keepAwake(false);
-    setScenery(null);
+    stopScenery();
     closePrompt();
   }
 
@@ -1740,7 +1960,9 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       const ease = f * f * (3 - 2 * f);
       const long = prev.long + (cur.long - prev.long) * ease;
       const lat = prev.lat + (cur.lat - prev.lat) * ease;
-      handleMotion([-lat, long, G], performance.now());
+      // A flat phone's "up" is +z, so the gyroscope's turn rate is alpha (3rd entry).
+      const yawDeg = (lat / 12) * (180 / Math.PI); // demo speed is 12 m/s
+      handleMotion([-lat, long, G], performance.now(), [0, 0, yawDeg]);
       if (simT >= timeline[Math.min(i, timeline.length - 1)].t) {
         if (i < timeline.length) {
           session.lastFixAt = Date.now();

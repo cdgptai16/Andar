@@ -129,31 +129,118 @@
     clearTimeout(turnTimer);
     turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
-  // Scenery dots: drawn once per animation frame from the latest smoothed motion,
-  // so sensor bursts never queue up visual work.
-  let sceneryTarget = null;
-  let sceneryRaf = null;
-  function setScenery(motionOut) {
-    sceneryTarget = motionOut;
-    if (sceneryRaf === null) sceneryRaf = requestAnimationFrame(drawScenery);
+  // Scenery dots: a canvas redrawn every screen frame from session.scenery (engine
+  // SceneryModel). Dots sit on a lattice that scrolls with the car and is only drawn inside
+  // bands around the four edges, so it reads as scenery passing in your peripheral vision.
+  const scenery = { raf: null, lastTs: null, ctx: null, w: 0, h: 0, bands: null, color: '#46d9b4' };
+  const DOT_GAP = 26;
+  const DOT_R = 3.5;
+
+  function layoutScenery() {
+    const canvas = $('#scenery-canvas');
+    const ride = $('#ride');
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const w = ride.clientWidth;
+    const h = ride.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const hudBottom = $('#ride .hud').getBoundingClientRect().bottom - ride.getBoundingClientRect().top;
+    const ctlTop = $('#ride .controls').getBoundingClientRect().top - ride.getBoundingClientRect().top;
+    const top = hudBottom + 8;
+    const bottom = ctlTop - 8;
+    const side = Math.max(44, Math.min(84, w * 0.16));
+    const band = Math.max(44, Math.min(80, h * 0.09));
+    scenery.ctx = ctx;
+    scenery.w = w;
+    scenery.h = h;
+    // [x0, x1, y0, y1, inner edge for fading: 'r' | 'l' | 'b' | 't']
+    scenery.bands = [
+      [0, side, top, bottom, 'r'],
+      [w - side, w, top, bottom, 'l'],
+      [side, w - side, top, top + band, 'b'],
+      [side, w - side, bottom - band, bottom, 't'],
+    ];
+    scenery.color = getComputedStyle(document.documentElement).getPropertyValue('--cue').trim() || scenery.color;
   }
-  function drawScenery() {
-    sceneryRaf = null;
-    const el = $('#scenery');
-    if (!sceneryTarget) {
-      el.style.opacity = '0';
-      $$('#scenery .field').forEach((f) => (f.style.transform = 'translate(0px, 0px)'));
-      el.dataset.dx = '0';
-      el.dataset.dy = '0';
-      return;
+
+  // While a turn warning shows, leave a clear gap where the chevrons are so both stay readable.
+  function chevronGaps() {
+    if (!$('#turn-cue').classList.contains('show')) return [];
+    const base = $('#ride').getBoundingClientRect();
+    return $$('#turn-cue .chev')
+      .filter((el) => getComputedStyle(el).display !== 'none')
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return [r.left - base.left - 10, r.right - base.left + 10, r.top - base.top - 10, r.bottom - base.top + 10];
+      });
+  }
+
+  function drawScenery(out) {
+    const { ctx, bands } = scenery;
+    ctx.clearRect(0, 0, scenery.w, scenery.h);
+    if (out.opacity <= 0) return;
+    const gaps = chevronGaps();
+    const ox = ((out.scrollX % DOT_GAP) + DOT_GAP) % DOT_GAP;
+    const oy = ((out.scrollY % DOT_GAP) + DOT_GAP) % DOT_GAP;
+    const FADE = 14;
+    ctx.fillStyle = scenery.color;
+    for (const [x0, x1, y0, y1, inner] of bands) {
+      const i0 = Math.floor((x0 - ox) / DOT_GAP);
+      const i1 = Math.ceil((x1 - ox) / DOT_GAP);
+      const j0 = Math.floor((y0 - oy) / DOT_GAP);
+      const j1 = Math.ceil((y1 - oy) / DOT_GAP);
+      for (let i = i0; i <= i1; i++) {
+        const x = ox + i * DOT_GAP;
+        if (x < x0 || x > x1) continue;
+        for (let j = j0; j <= j1; j++) {
+          const y = oy + j * DOT_GAP;
+          if (y < y0 || y > y1) continue;
+          if (gaps.some(([gx0, gx1, gy0, gy1]) => x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1)) continue;
+          // Fade dots near the band's inner edge so they glide in and out instead of popping.
+          const d = inner === 'r' ? x1 - x : inner === 'l' ? x - x0 : inner === 'b' ? y1 - y : y - y0;
+          ctx.globalAlpha = Math.min(1, d / FADE) * 0.9;
+          ctx.beginPath();
+          ctx.arc(x, y, DOT_R, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
-    const o = E.sceneryOffset(sceneryTarget.long, sceneryTarget.lat);
-    el.style.opacity = o.opacity.toFixed(2);
-    const t = `translate(${o.dx.toFixed(1)}px, ${o.dy.toFixed(1)}px)`;
-    $$('#scenery .field').forEach((f) => (f.style.transform = t));
-    el.dataset.dx = o.dx.toFixed(1);
-    el.dataset.dy = o.dy.toFixed(1);
+    ctx.globalAlpha = 1;
   }
+
+  function sceneryFrame(ts) {
+    scenery.raf = requestAnimationFrame(sceneryFrame);
+    if (!session || !session.scenery) return;
+    const dt = scenery.lastTs === null ? 0 : (ts - scenery.lastTs) / 1000;
+    scenery.lastTs = ts;
+    const out = session.scenery.step(dt);
+    const el = $('#scenery');
+    el.style.opacity = out.opacity.toFixed(3);
+    el.dataset.vx = out.vx.toFixed(1);
+    el.dataset.vy = out.vy.toFixed(1);
+    el.dataset.scrollX = out.scrollX.toFixed(1);
+    el.dataset.scrollY = out.scrollY.toFixed(1);
+    drawScenery(out);
+  }
+
+  function startScenery() {
+    stopScenery();
+    layoutScenery();
+    scenery.lastTs = null;
+    scenery.raf = requestAnimationFrame(sceneryFrame);
+  }
+  function stopScenery() {
+    if (scenery.raf !== null) cancelAnimationFrame(scenery.raf);
+    scenery.raf = null;
+    const el = $('#scenery');
+    el.style.opacity = '0';
+    if (scenery.ctx) scenery.ctx.clearRect(0, 0, scenery.w, scenery.h);
+  }
+  window.addEventListener('resize', () => {
+    if (scenery.raf !== null) layoutScenery();
+  });
 
   /* ------------------------------------------------------------- Sensors */
 
@@ -197,8 +284,11 @@
     if (!a || !Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(a.z)) return;
     motion.seen = true;
     const sample = [a.x, a.y, a.z];
+    const r = e.rotationRate;
+    // rotationRate alpha/beta/gamma = deg/s about device z/x/y; reorder to [x, y, z].
+    const rot = r && [r.beta, r.gamma, r.alpha].every(Number.isFinite) ? [r.beta, r.gamma, r.alpha] : null;
     const t = performance.now();
-    motion.listeners.forEach((fn) => fn(sample, t));
+    motion.listeners.forEach((fn) => fn(sample, t, rot));
   }
   async function startMotion() {
     // iPhone needs an explicit permission tap; Android does not.
@@ -286,6 +376,7 @@
       tracker: route ? new E.RouteTracker(route, { leadSec: store.settings.leadSec }) : null,
       motionProc,
       forwardCheck: new E.ForwardCheck(),
+      scenery: null,
       startedAt: Date.now(),
       ratings: [],
       cues: [],
@@ -311,6 +402,16 @@
     session.fixes += 1;
     session.lastFixAt = Date.now();
     updateRideGps(fix);
+    if (session.scenery) {
+      let speed = fix.speed;
+      const prev = session.prevFix;
+      if (!Number.isFinite(speed) && prev && fix.t > prev.t) {
+        const dt = (fix.t - prev.t) / 1000;
+        if (dt >= 0.3 && dt <= 4) speed = E.haversine(prev, fix) / dt;
+      }
+      session.scenery.gps({ speed, accuracy: fix.accuracy, fixT: fix.t, now: performance.now() });
+    }
+    session.prevFix = fix;
     if (session.motionProc && session.lastMotion && !session.flipped) {
       if (session.forwardCheck.add(fix.speed, fix.t, session.lastMotion.long)) {
         session.motionProc.reverse();
@@ -347,14 +448,14 @@
   }
 
   let motionPeak = { long: 0, lat: 0 };
-  function handleMotion(sample, t) {
+  function handleMotion(sample, t, rot) {
     if (!session || session.ended || !session.motionProc) return;
-    const out = session.motionProc.push(sample, t);
+    const out = session.motionProc.push(sample, t, rot);
     if (!out) return;
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setScenery(out.fast);
+    if (session.scenery) session.scenery.motion(out.fast, t);
   }
 
   function updateRideGps(fix) {
@@ -433,8 +534,11 @@
     if (!session.tracker && session.condition === 'cues') {
       $('#ride-note').textContent += session.motionProc ? 'No destination: movement cues only.' : '';
     }
-    setScenery(null);
     $('#ride').classList.toggle('color-levels', !!store.settings.colorLevels);
+    if (session.motionProc && cuesVisible() && store.settings.motionCues) {
+      session.scenery = new E.SceneryModel();
+      startScenery();
+    }
     keepAwake(true);
     gps.listeners.add(handleFix);
     motion.listeners.add(handleMotion);
@@ -469,7 +573,7 @@
     gps.listeners.delete(handleFix);
     motion.listeners.delete(handleMotion);
     keepAwake(false);
-    setScenery(null);
+    stopScenery();
     closePrompt();
   }
 
@@ -724,7 +828,9 @@
       const ease = f * f * (3 - 2 * f);
       const long = prev.long + (cur.long - prev.long) * ease;
       const lat = prev.lat + (cur.lat - prev.lat) * ease;
-      handleMotion([-lat, long, G], performance.now());
+      // A flat phone's "up" is +z, so the gyroscope's turn rate is alpha (3rd entry).
+      const yawDeg = (lat / 12) * (180 / Math.PI); // demo speed is 12 m/s
+      handleMotion([-lat, long, G], performance.now(), [0, 0, yawDeg]);
       if (simT >= timeline[Math.min(i, timeline.length - 1)].t) {
         if (i < timeline.length) {
           session.lastFixAt = Date.now();

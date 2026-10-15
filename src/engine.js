@@ -92,17 +92,128 @@
     return { dir, strength, level: LEVEL[strength], label };
   }
 
-  // "Scenery" dots (like iPhone Vehicle Motion Cues): the dots behave like the world outside
-  // the window. Car turns left -> dots slide right. Car speeds up -> dots slide down; brakes -> up.
-  // long/lat in m/s² (lat > 0 = turning left). Returns pixel offsets and an opacity that
-  // fades the dots in only when there is motion worth showing.
-  function sceneryOffset(long, lat, { gain = 14, max = 44, fadeFrom = 0.35, fullAt = 1.4 } = {}) {
-    const clamp = (v) => Math.max(-max, Math.min(max, v));
-    const dx = clamp((Number.isFinite(lat) ? lat : 0) * gain);
-    const dy = clamp((Number.isFinite(long) ? long : 0) * gain);
-    const mag = Math.hypot(Number.isFinite(long) ? long : 0, Number.isFinite(lat) ? lat : 0);
-    const opacity = Math.max(0, Math.min(1, (mag - fadeFrom) / (fullAt - fadeFrom)));
-    return { dx, dy, opacity };
+  /*
+   * SceneryModel: iPhone-style "vehicle motion cues" on the phone screen.
+   *
+   * Peripheral vision notices MOTION, not position, so the dots stream continuously while
+   * the car is changing speed or direction, and stand still (then fade) when it isn't:
+   *   - Turning: dots sweep sideways at a speed set by the gyroscope's turn rate, the same
+   *     rotation the inner ear's canals feel. Left turn -> dots sweep right.
+   *   - Speed changes: dots stream up when braking, down when speeding up, at a speed set by
+   *     how hard the car is pushing you (what the inner ear's otoliths feel).
+   *   - Hills and a tilted mount look like "constant acceleration" to an accelerometer. A slow
+   *     bias tracker removes them: it compares the sensor with GPS speed changes when GPS is
+   *     good, and otherwise assumes the car's long-run average push is zero.
+   *   - Small wobble (lane drift, road texture) sits inside a dead zone and shows nothing.
+   *   - Dots fade in within ~0.1 s of real motion and fade out ~1.2 s after it stops.
+   */
+  const SCENERY_DEFAULTS = {
+    pxPerDegPerSec: 6, // a 20°/s city turn sweeps dots at 120 px/s
+    pxPerMs2: 45, // a 3 m/s² brake streams dots at 135 px/s
+    maxPxPerSec: 260,
+    yawDeadband: 2.5, // deg/s
+    accelDeadband: 0.35, // m/s²
+    yawFull: 12, // deg/s where dots reach full strength
+    accelFull: 1.6, // m/s² where dots reach full strength
+    attackSec: 0.08,
+    releaseSec: 1.2,
+    biasTauSec: 6,
+    gpsTauSec: 1.0,
+    gpsMaxAgeMs: 2500,
+    gpsMaxAccuracy: 25,
+  };
+
+  const deadzone = (v, d) => (Math.abs(v) <= d ? 0 : Math.sign(v) * (Math.abs(v) - d));
+
+  class SceneryModel {
+    constructor(opts = {}) {
+      this.o = { ...SCENERY_DEFAULTS, ...opts };
+      this.scrollX = 0;
+      this.scrollY = 0;
+      this.env = 0;
+      this.bias = 0;
+      this.longC = 0;
+      this.yawEff = 0;
+      this.lastMotionT = null;
+      this.gpsAccel = 0;
+      this.gpsPrev = null;
+      this.gpsAt = -Infinity; // receipt time on the motion clock
+      this.speed = null;
+      // Gyroscope unit check: some browsers have reported rad/s instead of deg/s.
+      this.gyroScale = 1;
+      this.gyroEvidence = { strongTurns: 0, tinyYaw: 0 };
+    }
+
+    // GPS fix: speed m/s, accuracy m, fixT = fix timestamp (ms), now = motion clock (ms).
+    gps({ speed, accuracy, fixT, now }) {
+      if (!Number.isFinite(speed) || (Number.isFinite(accuracy) && accuracy > this.o.gpsMaxAccuracy)) return;
+      this.speed = speed;
+      if (this.gpsPrev && fixT > this.gpsPrev.t) {
+        const dt = (fixT - this.gpsPrev.t) / 1000;
+        if (dt >= 0.3 && dt <= 4) {
+          const inst = (speed - this.gpsPrev.speed) / dt;
+          const k = 1 - Math.exp(-dt / this.o.gpsTauSec);
+          this.gpsAccel += k * (inst - this.gpsAccel);
+          this.gpsAt = now;
+        }
+      }
+      this.gpsPrev = { speed, t: fixT };
+    }
+
+    // fast: { long, lat, yaw } from MotionProcessor (m/s², m/s², deg/s or null); t: ms.
+    motion(fast, t) {
+      if (!fast) return;
+      const dt = this.lastMotionT === null ? 0 : Math.max(0, Math.min(0.5, (t - this.lastMotionT) / 1000));
+      this.lastMotionT = t;
+      const long = Number.isFinite(fast.long) ? fast.long : 0;
+      const lat = Number.isFinite(fast.lat) ? fast.lat : 0;
+      const gpsFresh = t - this.gpsAt <= this.o.gpsMaxAgeMs;
+      const ref = gpsFresh ? this.gpsAccel : 0;
+      if (dt > 0) this.bias += (1 - Math.exp(-dt / this.o.biasTauSec)) * (long - ref - this.bias);
+      this.longC = long - this.bias;
+
+      if (Number.isFinite(fast.yaw)) {
+        this._checkGyroUnits(fast.yaw, lat);
+        this.yawEff = fast.yaw * this.gyroScale;
+      } else if (Number.isFinite(this.speed) && this.speed > 3) {
+        // No gyroscope: a turn's sideways push equals speed x turn rate.
+        this.yawEff = (lat / this.speed) * (180 / Math.PI);
+      } else {
+        this.yawEff = (lat / 8) * (180 / Math.PI); // assume ~30 km/h
+      }
+    }
+
+    _checkGyroUnits(yaw, lat) {
+      if (this.gyroScale !== 1 || !(this.speed > 4) || Math.abs(lat) < 1.5) return;
+      const expected = Math.abs((lat / this.speed) * (180 / Math.PI)); // deg/s
+      this.gyroEvidence.strongTurns += 1;
+      if (Math.abs(yaw) < expected / 20) this.gyroEvidence.tinyYaw += 1;
+      if (this.gyroEvidence.strongTurns >= 30 && this.gyroEvidence.tinyYaw / this.gyroEvidence.strongTurns > 0.8) {
+        this.gyroScale = 180 / Math.PI; // browser is reporting rad/s
+      }
+    }
+
+    // Advance the dot field by dtSec. Returns scroll position (px), velocity (px/s), opacity.
+    step(dtSec) {
+      const o = this.o;
+      const dt = Math.max(0, Math.min(0.1, dtSec));
+      const yaw = deadzone(this.yawEff, o.yawDeadband);
+      const acc = deadzone(this.longC, o.accelDeadband);
+      const clampV = (v) => Math.max(-o.maxPxPerSec, Math.min(o.maxPxPerSec, v));
+      const vx = clampV(yaw * o.pxPerDegPerSec); // left turn (+) -> dots sweep right (+x)
+      const vy = clampV(acc * o.pxPerMs2); // braking (-) -> dots stream up (-y)
+      this.scrollX = (this.scrollX + vx * dt) % 100000;
+      this.scrollY = (this.scrollY + vy * dt) % 100000;
+      const activity = Math.min(
+        1,
+        Math.max(Math.abs(yaw) / (o.yawFull - o.yawDeadband), Math.abs(acc) / (o.accelFull - o.accelDeadband))
+      );
+      const tau = activity > this.env ? o.attackSec : o.releaseSec;
+      if (dt > 0) this.env += (1 - Math.exp(-dt / tau)) * (activity - this.env);
+      const e = Math.max(0, Math.min(1, this.env));
+      const opacity = e < 0.06 ? 0 : e * e * (3 - 2 * e); // below 6% strength: fully off
+      return { scrollX: this.scrollX, scrollY: this.scrollY, vx, vy, opacity };
+    }
   }
 
   // Motion-cue intensity (0..1) -> number of dots (0–3). Used for the glasses lens,
@@ -288,6 +399,7 @@
       this.flip = 1; // -1 if GPS shows the mount is backwards
       this.f = { long: 0, lat: 0 };
       this.fast = { long: 0, lat: 0 };
+      this.yaw = null; // deg/s about the vertical axis, + = turning left (null: no gyroscope)
       this.lastT = null;
       this.active = { long: false, lat: false };
     }
@@ -318,12 +430,15 @@
       this.left = vec.unit(vec.cross(this.up, this.forward));
       this.f = { long: 0, lat: 0 };
       this.fast = { long: 0, lat: 0 };
+      this.yaw = null;
       this.lastT = null;
       return { tiltDeg: Math.round((Math.acos(Math.min(1, vec.norm(horiz))) * 180) / Math.PI) };
     }
 
-    // a: [x,y,z] accelerationIncludingGravity, t: ms. Returns car-frame values and cue intensities.
-    push(a, t) {
+    // a: [x,y,z] accelerationIncludingGravity, t: ms.
+    // rot (optional): rotationRate as [beta, gamma, alpha] = deg/s about device x, y, z.
+    // Returns car-frame values and cue intensities.
+    push(a, t, rot) {
       if (!this.calibrated) return null;
       const lin = vec.sub(a, vec.scale(this.up, this.g));
       const long = vec.dot(lin, this.forward) * this.flip;
@@ -336,10 +451,16 @@
       this.f.lat += k * (lat - this.f.lat);
       this.fast.long += kf * (long - this.fast.long);
       this.fast.lat += kf * (lat - this.fast.lat);
+      if (rot && rot.every(Number.isFinite)) {
+        // Turning = rotation about the vertical. Uses only "up", so it is right even if the
+        // phone is mounted backwards.
+        const yawNow = vec.dot(rot, this.up);
+        this.yaw = this.yaw === null ? yawNow : this.yaw + kf * (yawNow - this.yaw);
+      }
       return {
         long: this.f.long,
         lat: this.f.lat,
-        fast: { long: this.fast.long, lat: this.fast.lat },
+        fast: { long: this.fast.long, lat: this.fast.lat, yaw: this.yaw },
         cue: this._cue(),
       };
     }
@@ -577,7 +698,7 @@
     projectOnSegment,
     classifyManeuver,
     dotCount,
-    sceneryOffset,
+    SceneryModel,
     buildRoute,
     RouteTracker,
     MotionProcessor,
