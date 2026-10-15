@@ -153,8 +153,8 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 #ride.color-levels #turn-cue[data-level="2"] { color: var(--lvl2); }
 #ride.color-levels #turn-cue[data-level="3"] { color: var(--lvl3); }
 
-/* Movement happening now: iPhone-style "scenery" dots in bands around all four edges.
-   They stream while the car turns or changes speed, then stand still and fade out. */
+/* Movement happening now: iPhone-style "scenery" dots in narrow strips on the left and right
+   edges. They glide while the car turns or changes speed, then ease to a stop and fade out. */
 .scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; }
 .scenery canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
@@ -399,7 +399,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     </div>
     <div class="card">
       <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left turns buzz short, right turns buzz long. The number of buzzes matches the chevrons: 1 slight, 2 normal, 3 sharp. Arriving: one very long buzz.</span></span></label>
-      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Dots around the edges move like the scenery outside: they sweep right while the car turns left, stream up while it brakes, and stream down while it speeds up. On a steady road they stop and fade away.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Dots along the left and right edges move like the scenery outside: they sweep right while the car turns left, stream up while it brakes, and stream down while it speeds up. On a steady road they ease to a stop and fade away.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-color"><span><b>Color by strength (phone only)</b><br><span class="muted small">Green, amber, orange for 1, 2, 3 chevrons. The glasses show green only, so the count is what matters. If you turn this on, keep it on for the whole trial.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-debug"><span><b>Show sensor numbers</b><br><span class="muted small">For troubleshooting.</span></span></label>
     </div>

@@ -130,11 +130,15 @@
     turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
   // Scenery dots: a canvas redrawn every screen frame from session.scenery (engine
-  // SceneryModel). Dots sit on a lattice that scrolls with the car and is only drawn inside
-  // bands around the four edges, so it reads as scenery passing in your peripheral vision.
+  // SceneryModel). Like Apple's Vehicle Motion Cues, a sparse, staggered set of dots sits in
+  // a narrow strip on the left and right edges and scrolls with the car, so it reads as
+  // scenery passing in your peripheral vision without covering the middle of the screen.
   const scenery = { raf: null, lastTs: null, ctx: null, w: 0, h: 0, bands: null, color: '#46d9b4' };
-  const DOT_GAP = 26;
-  const DOT_R = 3.5;
+  const DOT_GAP_X = 30; // between columns
+  const DOT_GAP_Y = 56; // between dots in a column; every other column is offset by half
+  const DOT_R = 4.5;
+  const EDGE_FADE = 22; // px over which dots fade at a strip's open edges (no popping)
+  const GAP_FADE = 14; // px over which dots fade next to the turn chevrons
 
   function layoutScenery() {
     const canvas = $('#scenery-canvas');
@@ -150,17 +154,14 @@
     const ctlTop = $('#ride .controls').getBoundingClientRect().top - ride.getBoundingClientRect().top;
     const top = hudBottom + 8;
     const bottom = ctlTop - 8;
-    const side = Math.max(44, Math.min(84, w * 0.16));
-    const band = Math.max(44, Math.min(80, h * 0.09));
+    const side = Math.max(56, Math.min(72, w * 0.16)); // about two columns
     scenery.ctx = ctx;
     scenery.w = w;
     scenery.h = h;
-    // [x0, x1, y0, y1, inner edge for fading: 'r' | 'l' | 'b' | 't']
+    // Dots enter from the screen edge and fade out at the strip's other three edges.
     scenery.bands = [
-      [0, side, top, bottom, 'r'],
-      [w - side, w, top, bottom, 'l'],
-      [side, w - side, top, top + band, 'b'],
-      [side, w - side, bottom - band, bottom, 't'],
+      { x0: 0, x1: side, y0: top, y1: bottom, fadeL: false, fadeR: true },
+      { x0: w - side, x1: w, y0: top, y1: bottom, fadeL: true, fadeR: false },
     ];
     scenery.color = getComputedStyle(document.documentElement).getPropertyValue('--cue').trim() || scenery.color;
   }
@@ -177,30 +178,38 @@
       });
   }
 
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  // Distance from a point to a rectangle [x0, x1, y0, y1]; 0 inside it.
+  const rectDist = (x, y, [x0, x1, y0, y1]) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1));
+
   function drawScenery(out) {
     const { ctx, bands } = scenery;
     ctx.clearRect(0, 0, scenery.w, scenery.h);
     if (out.opacity <= 0) return;
     const gaps = chevronGaps();
-    const ox = ((out.scrollX % DOT_GAP) + DOT_GAP) % DOT_GAP;
-    const oy = ((out.scrollY % DOT_GAP) + DOT_GAP) % DOT_GAP;
-    const FADE = 14;
+    // The pattern is anchored to the road (scroll), so each dot keeps its place in the
+    // stagger as it travels; only the visible window is computed.
+    const colShift = Math.floor(out.scrollX / DOT_GAP_X);
+    const ox = out.scrollX - colShift * DOT_GAP_X;
     ctx.fillStyle = scenery.color;
-    for (const [x0, x1, y0, y1, inner] of bands) {
-      const i0 = Math.floor((x0 - ox) / DOT_GAP);
-      const i1 = Math.ceil((x1 - ox) / DOT_GAP);
-      const j0 = Math.floor((y0 - oy) / DOT_GAP);
-      const j1 = Math.ceil((y1 - oy) / DOT_GAP);
-      for (let i = i0; i <= i1; i++) {
-        const x = ox + i * DOT_GAP;
-        if (x < x0 || x > x1) continue;
-        for (let j = j0; j <= j1; j++) {
-          const y = oy + j * DOT_GAP;
-          if (y < y0 || y > y1) continue;
-          if (gaps.some(([gx0, gx1, gy0, gy1]) => x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1)) continue;
-          // Fade dots near the band's inner edge so they glide in and out instead of popping.
-          const d = inner === 'r' ? x1 - x : inner === 'l' ? x - x0 : inner === 'b' ? y1 - y : y - y0;
-          ctx.globalAlpha = Math.min(1, d / FADE) * 0.9;
+    for (const b of bands) {
+      for (let i = Math.floor((b.x0 - ox) / DOT_GAP_X); i <= Math.ceil((b.x1 - ox) / DOT_GAP_X); i++) {
+        const x = ox + i * DOT_GAP_X;
+        if (x < b.x0 - DOT_R || x > b.x1) continue;
+        const stagger = (i - colShift) & 1 ? DOT_GAP_Y / 2 : 0;
+        const sy = out.scrollY + stagger;
+        const oy = sy - Math.floor(sy / DOT_GAP_Y) * DOT_GAP_Y;
+        for (let j = Math.floor((b.y0 - oy) / DOT_GAP_Y); j <= Math.ceil((b.y1 - oy) / DOT_GAP_Y); j++) {
+          const y = oy + j * DOT_GAP_Y;
+          if (y < b.y0 || y > b.y1) continue;
+          // Fade toward every open edge of the strip and around the chevrons, so dots
+          // glide in and out of view instead of popping.
+          let a = clamp01(Math.min(y - b.y0, b.y1 - y) / EDGE_FADE);
+          if (b.fadeR) a *= clamp01((b.x1 - x) / EDGE_FADE);
+          if (b.fadeL) a *= clamp01((x - b.x0) / EDGE_FADE);
+          for (const g of gaps) a *= clamp01(rectDist(x, y, g) / GAP_FADE);
+          if (a <= 0.01) continue;
+          ctx.globalAlpha = a * 0.9;
           ctx.beginPath();
           ctx.arc(x, y, DOT_R, 0, Math.PI * 2);
           ctx.fill();

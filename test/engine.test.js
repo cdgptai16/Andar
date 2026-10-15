@@ -223,6 +223,108 @@ test('SceneryModel: detects a browser reporting the gyroscope in rad/s', () => {
   assert.ok(r.vx > 60, JSON.stringify(r));
 });
 
+// Seeded noise so the "real road" tests are repeatable.
+function noise(seed, sigma) {
+  let s = seed;
+  const u = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return () => (u() + u() + u() + u() - 2) * sigma * 1.73; // ~normal, std ≈ sigma
+}
+
+// Full sensor path (flat phone -> MotionProcessor -> SceneryModel) with 12 Hz road vibration
+// and sensor noise, as a real phone in a real car would report it.
+function noisyRide(segments, opts = {}) {
+  const G = 9.80665;
+  const n = noise(7, 0.15);
+  const mp = new E.MotionProcessor({ mount: 'flat' });
+  mp.calibrate(Array.from({ length: 20 }, () => [0, 0, G]));
+  const sm = new E.SceneryModel(opts);
+  const dt = 1000 / 60;
+  let t = 0;
+  return segments.map(([sec, long, yaw]) => {
+    const rows = [];
+    for (let i = 0; i < Math.round(sec * 60); i++) {
+      t += dt;
+      const vib = 0.6 * Math.sin((2 * Math.PI * 12 * t) / 1000);
+      const out = mp.push([n(), long + vib + n(), G + 3 * n()], t, [0, 0, yaw + 5 * n()]);
+      sm.motion(out.fast, t);
+      rows.push(sm.step(dt / 1000));
+    }
+    return rows;
+  });
+}
+const maxFrameStep = (rows, k) => Math.max(...rows.slice(1).map((r, i) => Math.abs(r[k] - rows[i][k])));
+
+test('SceneryModel: dots flow smoothly on a real, vibrating road (no twitch, no reversal)', () => {
+  const [steady, brake] = noisyRide([[4, 0, 0], [3, -3, 0]]);
+  assert.equal(Math.max(...steady.map((r) => r.opacity)), 0, 'steady road stays dark despite vibration');
+  const settled = brake.slice(30);
+  assert.ok(maxFrameStep(settled, 'vy') < 3, `dot speed changes < 3 px/s per frame: ${maxFrameStep(settled, 'vy').toFixed(2)}`);
+  assert.ok(settled.every((r) => r.vy < 0), 'dots never reverse while braking');
+  // Same road without the glide: the raw signal twitches several times harder.
+  const [, raw] = noisyRide([[4, 0, 0], [3, -3, 0]], { glideOmega: 1e6 });
+  assert.ok(maxFrameStep(raw.slice(30), 'vy') > 3 * maxFrameStep(settled, 'vy'), 'glide is what removes the twitch');
+});
+
+test('SceneryModel: dots keep pace with a sudden brake (70% speed within 0.2 s)', () => {
+  const [, brake] = noisyRide([[2, 0, 0], [2, -3, 0]]);
+  const final = brake[brake.length - 1].vy;
+  const t70 = brake.findIndex((r) => r.vy < 0.7 * final) / 60;
+  assert.ok(t70 >= 0 && t70 <= 0.2, `reached 70% in ${t70.toFixed(2)} s`);
+});
+
+test('SceneryModel: dots ease to a stop after a maneuver, then are exactly still', () => {
+  const m = new E.SceneryModel();
+  let r = runScenery(m, 1, { long: 0, lat: 2, yaw: 20 });
+  const rows = [];
+  for (let i = 0; i < 60; i++) {
+    r = runScenery(m, 1 / 60, { long: 0, lat: 0, yaw: 0 }, { t0: r.t });
+    rows.push(r.out);
+  }
+  for (let i = 1; i < rows.length; i++) assert.ok(rows[i].vx <= rows[i - 1].vx, 'speed only ever decreases');
+  assert.ok(maxFrameStep(rows, 'vx') < 20, `no sudden halt: biggest per-frame drop ${maxFrameStep(rows, 'vx').toFixed(1)} px/s`);
+  const stopAt = rows.findIndex((o) => o.vx === 0);
+  assert.ok(stopAt > 6 && stopAt <= 36, `glides to a full stop in ${(stopAt / 60).toFixed(2)} s`);
+  assert.equal(rows[59].scrollX, rows[stopAt].scrollX, 'no creeping once stopped');
+});
+
+test('SceneryModel: a long brake never makes the dots stream the wrong way afterwards', () => {
+  for (const withGps of [false, true]) {
+    const m = new E.SceneryModel();
+    const dt = 1000 / 60;
+    let t = 0;
+    let v = 20;
+    const hist = [];
+    const rows = [];
+    for (let i = 0; i < 12 * 60; i++) {
+      t += dt;
+      const a = t >= 2000 && t < 6000 ? -3 : 0; // 4 s of firm braking
+      v += (a * dt) / 1000;
+      hist.push([t, v]);
+      // GPS speed arrives once a second and is 1 s out of date, like a real phone.
+      if (withGps && i % 60 === 0) m.gps({ speed: hist.find((h) => h[0] >= t - 1000)[1], accuracy: 5, fixT: t, now: t });
+      m.motion({ long: a, lat: 0, yaw: 0 }, t);
+      rows.push({ t, a, ...m.step(dt / 1000) });
+    }
+    const atOneSec = rows.find((r) => r.t >= 3000).vy;
+    const atEnd = rows.find((r) => r.t >= 5950).vy;
+    assert.ok(atEnd < 0.9 * atOneSec, `gps=${withGps}: braking cue holds its strength (${atOneSec.toFixed(0)} -> ${atEnd.toFixed(0)})`);
+    const wrong = Math.max(...rows.filter((r) => r.t > 6000).map((r) => r.vy));
+    assert.ok(wrong <= 0, `gps=${withGps}: no downward stream after braking (max ${wrong.toFixed(1)} px/s)`);
+  }
+});
+
+test('SceneryModel: a re-tilted phone or steep hill stops streaming within ~20 s', () => {
+  const m = new E.SceneryModel();
+  const r = runScenery(m, 22, { long: 1.7, lat: 0, yaw: 0 }); // ~10° tilt, no GPS
+  assert.equal(r.out.vy, 0);
+  assert.equal(r.out.opacity, 0);
+});
+
 test('MotionProcessor reports turn rate from the gyroscope, independent of mount direction', () => {
   const p = new E.MotionProcessor({ mount: 'upright' });
   p.calibrate(still('upright')); // up = +y

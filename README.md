@@ -41,13 +41,14 @@ When you have 6+ usable rides in each mode, **Results** gives one of four verdic
 
 - **Strength is shown by count, never by color alone**: 1 = slight, 2 = normal, 3 = sharp. This works on the green-only glasses display and for color-blind users. An optional phone-only color layer (green, amber, orange) can be turned on in Settings; if you use it, keep it on for the whole trial.
 - **Before turns** (needs a destination): the route comes from OSRM; the phone's GPS tracks where you are along it, estimates when you'll reach each turn, and fires the cue 2 seconds early, correcting for GPS delay. Chevrons appear on the side of the turn (1, 2 or 3 of them) and the phone buzzes the same number of times: short buzzes for left, long buzzes for right. Roundabouts and U-turns show chevrons on both sides; arriving shows three dots and one very long buzz. If you leave the route, turn cues pause.
-- **During braking and turning** (always, no destination needed): like iPhone's Vehicle Motion Cues, a band of dots around all four edges of the screen moves like the scenery outside the window, at the same moment the car moves.
+- **During braking and turning** (always, no destination needed): like iPhone's Vehicle Motion Cues, a sparse strip of dots on the left and right edges of the screen moves like the scenery outside the window, at the same moment the car moves. The middle of the screen stays clear.
   - **Turning:** the gyroscope measures how fast the car is turning. Turning left, the dots sweep right; turning right, they sweep left. A sharper turn sweeps faster.
   - **Braking / speeding up:** braking makes the dots stream up; speeding up makes them stream down. Harder braking streams faster.
-  - **Steady road:** at constant speed on a straight road the dots stop and fade out within about 1–2 seconds. Small bumps and sensor noise are ignored, so they don't flicker.
-  - **Hills and phone tilt:** GPS speed is used to cancel out the pull of gravity on slopes, so a long hill doesn't look like braking.
+  - **Seamless flow:** dot speed glides rather than jumps. Road vibration and sensor noise are smoothed out, dots ease in and out of view at the strip edges, and changes still show within about 0.15 seconds.
+  - **Steady road:** at constant speed on a straight road the dots ease to a stop and fade out within about 1–2 seconds. Small bumps are ignored, so they don't flicker.
+  - **Hills and phone tilt:** GPS speed is used to cancel out the pull of gravity on slopes, so a long hill doesn't look like braking. A long stop is never mistaken for a hill, so the dots don't drift the wrong way after the brakes come off.
   - The dots skip the area around the turn chevrons so both stay readable during a turn.
-  - The phone's motion sensor is calibrated at the start; if the phone was mounted backwards, the app detects it from GPS speed changes and corrects itself. On the glasses (Phase 2), which can't animate smoothly, the same signal will be shown as 1–3 dots instead.
+  - The phone's motion sensor is calibrated at the start; if the phone was mounted backwards, the app detects it from GPS speed changes and corrects itself. On the glasses (Phase 2), the same signal will be shown as 1–3 still dots instead: the G2 display can't animate smoothly (its developer guide says no animations; picture updates run at best a few per second over Bluetooth).
 
 ## Your data
 
@@ -58,7 +59,7 @@ This is a personal experiment, not a medical device.
 ## For developers
 
 ```
-npm test          # 36 engine unit tests + 4 browser end-to-end tests
+npm test          # 41 engine unit tests + 4 browser end-to-end tests
 npm run build     # inlines engine + app into dist/index.html (single file, no dependencies)
 ```
 

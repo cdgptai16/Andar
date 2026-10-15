@@ -103,14 +103,19 @@
    *     how hard the car is pushing you (what the inner ear's otoliths feel).
    *   - Hills and a tilted mount look like "constant acceleration" to an accelerometer. A slow
    *     bias tracker removes them: it compares the sensor with GPS speed changes when GPS is
-   *     good, and otherwise assumes the car's long-run average push is zero.
+   *     good, and otherwise assumes the car's long-run average push is zero. It pauses during
+   *     a strong push (braking, speeding up) so a long stop doesn't get "learned" as a hill and
+   *     then make the dots stream the wrong way when the brakes come off.
    *   - Small wobble (lane drift, road texture) sits inside a dead zone and shows nothing.
+   *   - Dot speed glides (critically damped spring): no jumps, no twitching from road noise,
+   *     and the dots ease to a stop instead of halting dead.
    *   - Dots fade in within ~0.1 s of real motion and fade out ~1.2 s after it stops.
    */
   const SCENERY_DEFAULTS = {
     pxPerDegPerSec: 6, // a 20°/s city turn sweeps dots at 120 px/s
     pxPerMs2: 45, // a 3 m/s² brake streams dots at 135 px/s
     maxPxPerSec: 260,
+    glideOmega: 20, // rad/s: dot speed covers 70% of a sudden change in ~0.12 s, never overshoots
     yawDeadband: 2.5, // deg/s
     accelDeadband: 0.35, // m/s²
     yawFull: 12, // deg/s where dots reach full strength
@@ -118,6 +123,8 @@
     attackSec: 0.08,
     releaseSec: 1.2,
     biasTauSec: 6,
+    biasGate: 0.8, // m/s² (~8% grade): a bigger push is treated as a maneuver, not a hill...
+    biasHoldSec: 8, // ...unless it lasts longer than this (a steep hill or a re-tilted phone)
     gpsTauSec: 1.0,
     gpsMaxAgeMs: 2500,
     gpsMaxAccuracy: 25,
@@ -125,13 +132,31 @@
 
   const deadzone = (v, d) => (Math.abs(v) <= d ? 0 : Math.sign(v) * (Math.abs(v) - d));
 
+  // Critically damped spring, solved exactly so it is stable at any frame time. Moves s.v
+  // toward target with continuous speed and acceleration (s.a): the motion has no corners.
+  // Snaps to an exact stop once it is imperceptibly slow, so still dots are truly still.
+  function glide(s, target, omega, dt) {
+    const c1 = s.v - target;
+    const c2 = s.a + omega * c1;
+    const e = Math.exp(-omega * dt);
+    s.v = target + (c1 + c2 * dt) * e;
+    s.a = (c2 - omega * (c1 + c2 * dt)) * e;
+    if (target === 0 && Math.abs(s.v) < 0.5 && Math.abs(s.a) < 5) {
+      s.v = 0;
+      s.a = 0;
+    }
+  }
+
   class SceneryModel {
     constructor(opts = {}) {
       this.o = { ...SCENERY_DEFAULTS, ...opts };
       this.scrollX = 0;
       this.scrollY = 0;
+      this.gx = { v: 0, a: 0 }; // dot speed (px/s) and its rate of change, per axis
+      this.gy = { v: 0, a: 0 };
       this.env = 0;
       this.bias = 0;
+      this.bigPushSec = 0; // how long the corrected push has stayed above biasGate
       this.longC = 0;
       this.yawEff = 0;
       this.lastMotionT = null;
@@ -169,7 +194,12 @@
       const lat = Number.isFinite(fast.lat) ? fast.lat : 0;
       const gpsFresh = t - this.gpsAt <= this.o.gpsMaxAgeMs;
       const ref = gpsFresh ? this.gpsAccel : 0;
-      if (dt > 0) this.bias += (1 - Math.exp(-dt / this.o.biasTauSec)) * (long - ref - this.bias);
+      const dev = long - ref - this.bias;
+      const small = Math.abs(dev) <= this.o.biasGate;
+      this.bigPushSec = small ? 0 : this.bigPushSec + dt;
+      if (dt > 0 && (small || this.bigPushSec > this.o.biasHoldSec)) {
+        this.bias += (1 - Math.exp(-dt / this.o.biasTauSec)) * dev;
+      }
       this.longC = long - this.bias;
 
       if (Number.isFinite(fast.yaw)) {
@@ -200,10 +230,15 @@
       const yaw = deadzone(this.yawEff, o.yawDeadband);
       const acc = deadzone(this.longC, o.accelDeadband);
       const clampV = (v) => Math.max(-o.maxPxPerSec, Math.min(o.maxPxPerSec, v));
-      const vx = clampV(yaw * o.pxPerDegPerSec); // left turn (+) -> dots sweep right (+x)
-      const vy = clampV(acc * o.pxPerMs2); // braking (-) -> dots stream up (-y)
-      this.scrollX = (this.scrollX + vx * dt) % 100000;
-      this.scrollY = (this.scrollY + vy * dt) % 100000;
+      const vx0 = this.gx.v;
+      const vy0 = this.gy.v;
+      glide(this.gx, clampV(yaw * o.pxPerDegPerSec), o.glideOmega, dt); // left turn (+) -> sweep right (+x)
+      glide(this.gy, clampV(acc * o.pxPerMs2), o.glideOmega, dt); // braking (-) -> stream up (-y)
+      const vx = this.gx.v;
+      const vy = this.gy.v;
+      // No wrap-around here: the renderer repeats the dot pattern, so any jump would show.
+      this.scrollX += ((vx0 + vx) / 2) * dt;
+      this.scrollY += ((vy0 + vy) / 2) * dt;
       const activity = Math.min(
         1,
         Math.max(Math.abs(yaw) / (o.yawFull - o.yawDeadband), Math.abs(acc) / (o.accelFull - o.accelDeadband))
