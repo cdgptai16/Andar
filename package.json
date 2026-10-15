@@ -1,0 +1,12 @@
+{
+  "name": "andar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Phone prototype that tests whether anticipatory turn and braking cues reduce car sickness.",
+  "scripts": {
+    "build": "node build.mjs",
+    "test:unit": "node --test test/engine.test.js",
+    "test:e2e": "node build.mjs && PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-browsers} node test/e2e.mjs",
+    "test": "npm run test:unit && npm run test:e2e"
+  }
+}

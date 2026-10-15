@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1016">
+<title>Andar</title>
+<style>
+/* Layout: one column of stacked "screens"; the ride screen is a full-bleed instrument surface. */
+:root {
+  --bg: #0b1016;
+  --surface: #131b24;
+  --surface-2: #1b2531;
+  --line: #263241;
+  --fg: #e7edf3;
+  --muted: #8d9bab;
+  --cue: #46d9b4;        /* green-cyan: most visible cue colors in moving cars, matches the glasses' green display */
+  --cue-ink: #062a21;
+  --control: #9aa8ba;
+  --warn: #f2b84b;
+  --danger: #f27474;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --r: 14px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f3f6f8; --surface: #ffffff; --surface-2: #e9eef2; --line: #d3dbe2;
+    --fg: #0f1a24; --muted: #566575; --cue: #0f9f7d; --cue-ink: #ffffff;
+    --control: #5c6b7c; --warn: #a96b00; --danger: #c43c3c; color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 var(--font);
+  -webkit-tap-highlight-color: transparent;
+}
+.wrap {
+  max-width: 560px; margin: 0 auto;
+  padding-block: max(20px, env(safe-area-inset-top, 0px)) max(28px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px;
+}
+h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; }
+h1 { font-size: 1.75rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: 1rem; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 0.875rem; }
+.eyebrow { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.stack { display: grid; gap: 10px; }
+button, .btn {
+  font: inherit; font-weight: 600; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--fg); padding: 14px 16px; min-height: 52px; cursor: pointer;
+}
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--cue); outline-offset: 2px; }
+button.primary { background: var(--cue); color: var(--cue-ink); border-color: transparent; }
+button.danger { color: var(--danger); }
+button.ghost { background: transparent; }
+button:disabled { opacity: 0.5; cursor: default; }
+.full { width: 100%; }
+input[type="text"], select {
+  font: inherit; width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--fg); min-height: 52px;
+}
+label.choice { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+label.choice:has(input:checked) { border-color: var(--cue); background: color-mix(in srgb, var(--cue) 10%, transparent); }
+label.choice input { margin-top: 4px; accent-color: var(--cue); width: 20px; height: 20px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 0.8125rem; font-weight: 600; border: 1px solid var(--line); }
+.pill.cues { color: var(--cue); border-color: color-mix(in srgb, var(--cue) 50%, transparent); }
+.pill.control { color: var(--control); }
+.pill.warn { color: var(--warn); }
+.status { display: flex; gap: 8px; align-items: center; font-size: 0.9375rem; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--cue); } .dot.bad { background: var(--danger); } .dot.wait { background: var(--warn); }
+.results-list { display: grid; gap: 8px; }
+.result-btn { text-align: left; font-weight: 500; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--surface-2); border-radius: 12px; padding: 10px; display: grid; gap: 2px; }
+.stat b { font-size: 1.25rem; }
+.ride-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.ride-item:first-child { border-top: 0; }
+.verdict { border-left: 4px solid var(--muted); padding-left: 12px; }
+.verdict.helped { border-color: var(--cue); } .verdict.no-benefit { border-color: var(--danger); } .verdict.unclear { border-color: var(--warn); }
+.plot { overflow-x: auto; }
+.plot svg { display: block; width: 100%; height: auto; }
+.plot text { fill: var(--muted); font: 12px var(--font); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px)); max-width: calc(100% - 32px);
+  background: var(--fg); color: var(--bg); padding: 12px 16px; border-radius: 12px; font-weight: 600; z-index: 50;
+}
+.slider-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+input[type="range"] { width: 100%; accent-color: var(--cue); }
+
+/* ---------- Ride screen: an instrument surface the passenger sees in peripheral vision ---------- */
+#ride { position: fixed; inset: 0; background: var(--bg); overflow: hidden; }
+#ride .hud {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: max(14px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; z-index: 5;
+}
+#ride .controls {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 0 max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+#ride .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 0 64px; }
+#ride .center .clock { font-size: 3rem; font-weight: 700; }
+#debug { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: 64px; font: 12px/1.5 var(--mono); color: var(--muted); z-index: 5; white-space: pre; }
+
+/* Cues sit above the check-in sheet (z 10) so a turn is never hidden while you rate. */
+.glow { position: absolute; pointer-events: none; opacity: 0; transition: opacity 120ms linear; z-index: 11; }
+.glow.left   { left: 0; top: 0; bottom: 0; width: 26vw; background: linear-gradient(90deg, var(--cue), transparent); opacity: var(--g-left, 0); }
+.glow.right  { right: 0; top: 0; bottom: 0; width: 26vw; background: linear-gradient(270deg, var(--cue), transparent); opacity: var(--g-right, 0); }
+.glow.top    { left: 0; right: 0; top: 0; height: 18vh; background: linear-gradient(180deg, var(--cue), transparent); opacity: var(--g-top, 0); }
+.glow.bottom { left: 0; right: 0; bottom: 0; height: 18vh; background: linear-gradient(0deg, var(--cue), transparent); opacity: var(--g-bottom, 0); }
+
+#turn-cue { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 12; }
+#turn-cue.show { animation: cue-in 2.4s ease-out forwards; }
+#turn-cue .arrow { position: absolute; top: 50%; width: 30vw; max-width: 180px; transform: translateY(-50%); color: var(--cue); }
+#turn-cue[data-dir="left"] .arrow.l, #turn-cue[data-dir="roundabout"] .arrow.l, #turn-cue[data-dir="uturn"] .arrow.l { display: block; }
+#turn-cue[data-dir="right"] .arrow.r, #turn-cue[data-dir="roundabout"] .arrow.r { display: block; }
+#turn-cue .arrow { display: none; }
+#turn-cue .arrow.l { left: max(8px, env(safe-area-inset-left, 0px)); }
+#turn-cue .arrow.r { right: max(8px, env(safe-area-inset-right, 0px)); }
+#turn-cue .bar { display: none; position: absolute; left: 8vw; right: 8vw; bottom: 22vh; height: 14px; border-radius: 7px; background: var(--cue); }
+#turn-cue[data-dir="stop"] .bar { display: block; }
+#turn-cue[data-strength="light"] .arrow { opacity: 0.65; }
+#turn-label { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-weight: 700; font-size: 1.375rem; color: var(--cue); }
+@keyframes cue-in { 0% { opacity: 0; } 12% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+#turn-cue[data-dir="left"].show .arrow.l { animation: nudge-l 0.8s ease-in-out 3; }
+#turn-cue[data-dir="right"].show .arrow.r { animation: nudge-r 0.8s ease-in-out 3; }
+@keyframes nudge-l { 50% { transform: translate(-14px, -50%); } }
+@keyframes nudge-r { 50% { transform: translate(14px, -50%); } }
+
+/* Rating sheet */
+#rate { position: absolute; inset: 0; z-index: 10; background: var(--bg); display: grid; align-content: center; }
+#rate .sheet { padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 12px; max-width: 560px; margin: 0 auto; width: 100%; }
+.scale { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.scale button { min-height: 52px; padding: 0; font-size: 1.125rem; font-variant-numeric: tabular-nums; }
+.scale button[data-v="0"] { border-color: var(--cue); }
+.scale-ends { display: flex; justify-content: space-between; gap: 12px; font-size: 0.8125rem; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  #turn-cue.show .arrow { animation: none !important; }
+  .glow { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================== HOME ============================== -->
+<section class="screen" id="home">
+  <div class="wrap">
+    <div class="stack">
+      <p class="eyebrow">Phase 1 · phone prototype</p>
+      <h1>Andar</h1>
+      <p class="muted">Warns your body about turns and braking before they happen, then measures whether that lowers your car sickness.</p>
+    </div>
+
+    <div class="card" id="next-card">
+      <div class="row" style="justify-content: space-between;">
+        <h2>Next ride</h2>
+        <span class="pill" id="next-pill"></span>
+      </div>
+      <p class="muted small" id="next-explain"></p>
+      <button class="primary full" id="go-setup">Start a ride</button>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <h3>Your trial so far</h3>
+        <button class="ghost" id="go-results">See results</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="eyebrow">With cues</span><b class="num" id="home-cues">0</b></div>
+        <div class="stat"><span class="eyebrow">Without</span><b class="num" id="home-control">0</b></div>
+        <div class="stat"><span class="eyebrow">Goal each</span><b class="num" id="home-goal">6</b></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="go-demo" class="full">Try a 45-second demo drive</button>
+      <button id="go-settings" class="ghost full">Settings</button>
+    </div>
+    <p class="muted small">Passenger use only. Never use this while driving.</p>
+  </div>
+</section>
+
+<!-- ============================== SAFETY (first run) ============================== -->
+<section class="screen" id="safety" hidden>
+  <div class="wrap">
+    <h1>Before your first ride</h1>
+    <div class="card">
+      <p><b>Passengers only.</b> The cues are meant for someone who is not driving. Never look at or tap this phone while you drive.</p>
+      <p>This is a personal experiment, not a medical device. If your sickness is severe or getting worse, talk to your doctor.</p>
+      <p class="muted small">Your ride data stays on this phone. Destination searches go to OpenStreetMap's public map services.</p>
+    </div>
+    <button class="primary" id="ack-safety">I understand</button>
+  </div>
+</section>
+
+<!-- ============================== SETUP ============================== -->
+<section class="screen" id="setup" hidden>
+  <div class="wrap">
+    <div class="row" style="justify-content: space-between;">
+      <h1>Set up this ride</h1>
+      <button class="ghost" data-nav="home">Cancel</button>
+    </div>
+
+    <div class="card">
+      <h3>1 · Location</h3>
+      <div class="status"><span class="dot wait" id="gps-dot"></span><span id="gps-text">Finding your location…</span></div>
+    </div>
+
+    <div class="card">
+      <h3>2 · Where are you going?</h3>
+      <p class="muted small">With a destination, cues arrive before each turn. Without one, you still get cues for braking and turning as they happen.</p>
+      <form id="dest-form" class="stack">
+        <label for="dest" class="small muted">Address or place</label>
+        <input id="dest" type="text" autocomplete="off" placeholder="e.g. Legacy West, Plano">
+        <button type="submit" id="dest-search">Search</button>
+      </form>
+      <div class="results-list" id="dest-results"></div>
+      <div id="route-summary" class="status" hidden></div>
+      <button class="ghost" id="no-route">Ride without a destination</button>
+    </div>
+
+    <div class="card">
+      <h3>3 · How is the phone mounted?</h3>
+      <label class="choice"><input type="radio" name="mount" value="upright" id="mount-upright"><span><b>Upright in a dash or vent mount</b><br><span class="muted small">Screen facing you, like a navigation phone.</span></span></label>
+      <label class="choice"><input type="radio" name="mount" value="flat" id="mount-flat"><span><b>Flat on the console or tray</b><br><span class="muted small">Screen up, top edge pointing at the windshield.</span></span></label>
+      <p class="muted small">Put it where you can see it from the corner of your eye while looking out the window. It must not move during the ride.</p>
+    </div>
+
+    <div class="card">
+      <h3>4 · Start</h3>
+      <p class="small" id="start-condition"></p>
+      <p class="muted small">Stay still for 2 seconds after tapping start, so the phone can learn which way is down.</p>
+      <button class="primary" id="start-ride" disabled>Start ride</button>
+      <p class="small" id="setup-error" style="color: var(--danger);" hidden></p>
+      <button class="ghost" id="start-no-motion" hidden>Start without movement cues</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== RIDE ============================== -->
+<section class="screen" id="ride" hidden>
+  <div class="glow left"></div><div class="glow right"></div><div class="glow top"></div><div class="glow bottom"></div>
+
+  <div id="turn-cue" data-dir="left">
+    <svg class="arrow l" viewBox="0 0 100 100" aria-hidden="true"><path d="M62 14 L26 50 L62 86" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="arrow r" viewBox="0 0 100 100" aria-hidden="true"><path d="M38 14 L74 50 L38 86" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="bar"></div>
+    <div id="turn-label" aria-live="assertive"></div>
+  </div>
+
+  <div class="hud">
+    <span class="pill" id="ride-pill"></span>
+    <span class="status small"><span class="dot wait" id="ride-gps-dot"></span><span id="ride-gps-text">GPS</span></span>
+  </div>
+  <div id="debug" hidden></div>
+
+  <div class="center">
+    <div class="stack">
+      <div class="clock num" id="ride-clock">0:00</div>
+      <p class="muted small" id="ride-next"></p>
+      <p class="small" id="ride-note" style="color: var(--warn);"></p>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="rate-now">Rate how I feel</button>
+    <button id="end-ride" class="danger">End ride</button>
+  </div>
+
+  <div id="rate" hidden>
+    <div class="sheet">
+      <p class="eyebrow">Check-in</p>
+      <h2>How sick do you feel right now?</h2>
+      <div class="scale" id="scale"></div>
+      <div class="scale-ends"><span>0 = not at all</span><span>20 = about to vomit</span></div>
+      <button class="ghost" id="rate-skip">Skip this one</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== END ============================== -->
+<section class="screen" id="end" hidden>
+  <div class="wrap">
+    <h1>Ride finished</h1>
+    <p class="muted" id="end-summary"></p>
+    <form id="end-form" class="stack">
+      <div class="card">
+        <h3>Where did you sit?</h3>
+        <label class="choice"><input type="radio" name="seat" value="front" required><span>Front passenger seat</span></label>
+        <label class="choice"><input type="radio" name="seat" value="rear"><span>Back seat</span></label>
+      </div>
+      <div class="card">
+        <h3>What were you mostly doing?</h3>
+        <label class="choice"><input type="radio" name="activity" value="looking-out" required><span>Looking out the window</span></label>
+        <label class="choice"><input type="radio" name="activity" value="phone"><span>Using another phone or tablet</span></label>
+        <label class="choice"><input type="radio" name="activity" value="reading"><span>Reading</span></label>
+        <label class="choice"><input type="radio" name="activity" value="eyes-closed"><span>Eyes closed or resting</span></label>
+        <label class="choice"><input type="radio" name="activity" value="mixed"><span>A mix</span></label>
+      </div>
+      <div class="card">
+        <h3>What kind of roads?</h3>
+        <label class="choice"><input type="radio" name="road" value="city" required><span>City streets, lots of stops</span></label>
+        <label class="choice"><input type="radio" name="road" value="highway"><span>Mostly highway</span></label>
+        <label class="choice"><input type="radio" name="road" value="winding"><span>Curvy or hilly</span></label>
+        <label class="choice"><input type="radio" name="road" value="mixed"><span>A mix</span></label>
+      </div>
+      <div class="card">
+        <label class="choice"><input type="checkbox" name="stoppedEarly" value="yes"><span>I had to stop or end the ride early because I felt sick</span></label>
+        <label for="notes" class="small muted">Notes (optional)</label>
+        <input id="notes" name="notes" type="text" placeholder="e.g. took medication, empty stomach, hot car">
+      </div>
+      <button type="submit" class="primary">Save ride</button>
+      <button type="button" class="ghost danger" id="discard-ride">Discard this ride</button>
+    </form>
+  </div>
+</section>
+
+<!-- ============================== RESULTS ============================== -->
+<section class="screen" id="results" hidden>
+  <div class="wrap">
+    <div class="row" style="justify-content: space-between;">
+      <h1>Results</h1>
+      <button class="ghost" data-nav="home">Done</button>
+    </div>
+    <div class="card">
+      <div class="verdict" id="verdict"><h2 id="verdict-title"></h2><p id="verdict-text"></p></div>
+      <div class="stats">
+        <div class="stat"><span class="eyebrow">Peak, cues</span><b class="num" id="r-peak-cues">–</b></div>
+        <div class="stat"><span class="eyebrow">Peak, without</span><b class="num" id="r-peak-control">–</b></div>
+        <div class="stat"><span class="eyebrow">Difference</span><b class="num" id="r-diff">–</b></div>
+      </div>
+      <p class="muted small">Peak = your highest check-in on each ride (0–20), averaged. Rides under 10 minutes or with fewer than 3 check-ins are not counted.</p>
+      <div class="plot" id="plot"></div>
+    </div>
+    <div class="card">
+      <h3>Rides</h3>
+      <div id="ride-list"></div>
+    </div>
+    <div class="card">
+      <h3>Share your data</h3>
+      <p class="muted small">Send these to Claude or your doctor to review.</p>
+      <button id="copy-summary">Copy summary</button>
+      <button id="dl-csv">Download rides (CSV)</button>
+      <button id="dl-json">Download all data (JSON)</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== SETTINGS ============================== -->
+<section class="screen" id="settings" hidden>
+  <div class="wrap">
+    <div class="row" style="justify-content: space-between;">
+      <h1>Settings</h1>
+      <button class="ghost" data-nav="home">Done</button>
+    </div>
+    <div class="card">
+      <div class="slider-row"><label for="lead">Warn before a turn</label><span class="num" id="lead-val"></span></div>
+      <input type="range" id="lead" min="1" max="4" step="0.5">
+      <p class="muted small">Studies used about 1 second. Phone GPS lags by roughly a second, so 2 seconds is the starting point. Keep it the same for your whole trial.</p>
+    </div>
+    <div class="card">
+      <label for="interval">Ask how I feel every</label>
+      <select id="interval">
+        <option value="1">1 minute</option>
+        <option value="2">2 minutes</option>
+        <option value="3">3 minutes</option>
+      </select>
+    </div>
+    <div class="card">
+      <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left: two short buzzes. Right: one long buzz. Roundabout: rapid buzzes. Stopping: one very long buzz.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Edges of the screen glow toward the direction the car is pushing you.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-debug"><span><b>Show sensor numbers</b><br><span class="muted small">For troubleshooting.</span></span></label>
+    </div>
+    <div class="card">
+      <h3>Your data</h3>
+      <p class="muted small" id="data-count"></p>
+      <button class="danger" id="clear-all">Delete all rides</button>
+    </div>
+    <p class="muted small">Map search © OpenStreetMap contributors (Nominatim). Routes by OSRM. Andar v1.0</p>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>/*@@ENGINE@@*/</script>
+<script>/*@@APP@@*/</script>
+</body>
+</html>

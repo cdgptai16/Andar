@@ -1,0 +1,1881 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1016">
+<title>Andar</title>
+<style>
+/* Layout: one column of stacked "screens"; the ride screen is a full-bleed instrument surface. */
+:root {
+  --bg: #0b1016;
+  --surface: #131b24;
+  --surface-2: #1b2531;
+  --line: #263241;
+  --fg: #e7edf3;
+  --muted: #8d9bab;
+  --cue: #46d9b4;        /* green-cyan: most visible cue colors in moving cars, matches the glasses' green display */
+  --cue-ink: #062a21;
+  --control: #9aa8ba;
+  --warn: #f2b84b;
+  --danger: #f27474;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --r: 14px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f3f6f8; --surface: #ffffff; --surface-2: #e9eef2; --line: #d3dbe2;
+    --fg: #0f1a24; --muted: #566575; --cue: #0f9f7d; --cue-ink: #ffffff;
+    --control: #5c6b7c; --warn: #a96b00; --danger: #c43c3c; color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 var(--font);
+  -webkit-tap-highlight-color: transparent;
+}
+.wrap {
+  max-width: 560px; margin: 0 auto;
+  padding-block: max(20px, env(safe-area-inset-top, 0px)) max(28px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px;
+}
+h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; }
+h1 { font-size: 1.75rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: 1rem; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 0.875rem; }
+.eyebrow { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.stack { display: grid; gap: 10px; }
+button, .btn {
+  font: inherit; font-weight: 600; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--fg); padding: 14px 16px; min-height: 52px; cursor: pointer;
+}
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--cue); outline-offset: 2px; }
+button.primary { background: var(--cue); color: var(--cue-ink); border-color: transparent; }
+button.danger { color: var(--danger); }
+button.ghost { background: transparent; }
+button:disabled { opacity: 0.5; cursor: default; }
+.full { width: 100%; }
+input[type="text"], select {
+  font: inherit; width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--fg); min-height: 52px;
+}
+label.choice { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+label.choice:has(input:checked) { border-color: var(--cue); background: color-mix(in srgb, var(--cue) 10%, transparent); }
+label.choice input { margin-top: 4px; accent-color: var(--cue); width: 20px; height: 20px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 0.8125rem; font-weight: 600; border: 1px solid var(--line); }
+.pill.cues { color: var(--cue); border-color: color-mix(in srgb, var(--cue) 50%, transparent); }
+.pill.control { color: var(--control); }
+.pill.warn { color: var(--warn); }
+.status { display: flex; gap: 8px; align-items: center; font-size: 0.9375rem; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--cue); } .dot.bad { background: var(--danger); } .dot.wait { background: var(--warn); }
+.results-list { display: grid; gap: 8px; }
+.result-btn { text-align: left; font-weight: 500; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--surface-2); border-radius: 12px; padding: 10px; display: grid; gap: 2px; }
+.stat b { font-size: 1.25rem; }
+.ride-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.ride-item:first-child { border-top: 0; }
+.verdict { border-left: 4px solid var(--muted); padding-left: 12px; }
+.verdict.helped { border-color: var(--cue); } .verdict.no-benefit { border-color: var(--danger); } .verdict.unclear { border-color: var(--warn); }
+.plot { overflow-x: auto; }
+.plot svg { display: block; width: 100%; height: auto; }
+.plot text { fill: var(--muted); font: 12px var(--font); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px)); max-width: calc(100% - 32px);
+  background: var(--fg); color: var(--bg); padding: 12px 16px; border-radius: 12px; font-weight: 600; z-index: 50;
+}
+.slider-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+input[type="range"] { width: 100%; accent-color: var(--cue); }
+
+/* ---------- Ride screen: an instrument surface the passenger sees in peripheral vision ---------- */
+#ride { position: fixed; inset: 0; background: var(--bg); overflow: hidden; }
+#ride .hud {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: max(14px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; z-index: 5;
+}
+#ride .controls {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 0 max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+#ride .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 0 64px; }
+#ride .center .clock { font-size: 3rem; font-weight: 700; }
+#debug { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: 64px; font: 12px/1.5 var(--mono); color: var(--muted); z-index: 5; white-space: pre; }
+
+/* Cues sit above the check-in sheet (z 10) so a turn is never hidden while you rate. */
+.glow { position: absolute; pointer-events: none; opacity: 0; transition: opacity 120ms linear; z-index: 11; }
+.glow.left   { left: 0; top: 0; bottom: 0; width: 26vw; background: linear-gradient(90deg, var(--cue), transparent); opacity: var(--g-left, 0); }
+.glow.right  { right: 0; top: 0; bottom: 0; width: 26vw; background: linear-gradient(270deg, var(--cue), transparent); opacity: var(--g-right, 0); }
+.glow.top    { left: 0; right: 0; top: 0; height: 18vh; background: linear-gradient(180deg, var(--cue), transparent); opacity: var(--g-top, 0); }
+.glow.bottom { left: 0; right: 0; bottom: 0; height: 18vh; background: linear-gradient(0deg, var(--cue), transparent); opacity: var(--g-bottom, 0); }
+
+#turn-cue { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 12; }
+#turn-cue.show { animation: cue-in 2.4s ease-out forwards; }
+#turn-cue .arrow { position: absolute; top: 50%; width: 30vw; max-width: 180px; transform: translateY(-50%); color: var(--cue); }
+#turn-cue[data-dir="left"] .arrow.l, #turn-cue[data-dir="roundabout"] .arrow.l, #turn-cue[data-dir="uturn"] .arrow.l { display: block; }
+#turn-cue[data-dir="right"] .arrow.r, #turn-cue[data-dir="roundabout"] .arrow.r { display: block; }
+#turn-cue .arrow { display: none; }
+#turn-cue .arrow.l { left: max(8px, env(safe-area-inset-left, 0px)); }
+#turn-cue .arrow.r { right: max(8px, env(safe-area-inset-right, 0px)); }
+#turn-cue .bar { display: none; position: absolute; left: 8vw; right: 8vw; bottom: 22vh; height: 14px; border-radius: 7px; background: var(--cue); }
+#turn-cue[data-dir="stop"] .bar { display: block; }
+#turn-cue[data-strength="light"] .arrow { opacity: 0.65; }
+#turn-label { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-weight: 700; font-size: 1.375rem; color: var(--cue); }
+@keyframes cue-in { 0% { opacity: 0; } 12% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+#turn-cue[data-dir="left"].show .arrow.l { animation: nudge-l 0.8s ease-in-out 3; }
+#turn-cue[data-dir="right"].show .arrow.r { animation: nudge-r 0.8s ease-in-out 3; }
+@keyframes nudge-l { 50% { transform: translate(-14px, -50%); } }
+@keyframes nudge-r { 50% { transform: translate(14px, -50%); } }
+
+/* Rating sheet */
+#rate { position: absolute; inset: 0; z-index: 10; background: var(--bg); display: grid; align-content: center; }
+#rate .sheet { padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 12px; max-width: 560px; margin: 0 auto; width: 100%; }
+.scale { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.scale button { min-height: 52px; padding: 0; font-size: 1.125rem; font-variant-numeric: tabular-nums; }
+.scale button[data-v="0"] { border-color: var(--cue); }
+.scale-ends { display: flex; justify-content: space-between; gap: 12px; font-size: 0.8125rem; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  #turn-cue.show .arrow { animation: none !important; }
+  .glow { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================== HOME ============================== -->
+<section class="screen" id="home">
+  <div class="wrap">
+    <div class="stack">
+      <p class="eyebrow">Phase 1 · phone prototype</p>
+      <h1>Andar</h1>
+      <p class="muted">Warns your body about turns and braking before they happen, then measures whether that lowers your car sickness.</p>
+    </div>
+
+    <div class="card" id="next-card">
+      <div class="row" style="justify-content: space-between;">
+        <h2>Next ride</h2>
+        <span class="pill" id="next-pill"></span>
+      </div>
+      <p class="muted small" id="next-explain"></p>
+      <button class="primary full" id="go-setup">Start a ride</button>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <h3>Your trial so far</h3>
+        <button class="ghost" id="go-results">See results</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="eyebrow">With cues</span><b class="num" id="home-cues">0</b></div>
+        <div class="stat"><span class="eyebrow">Without</span><b class="num" id="home-control">0</b></div>
+        <div class="stat"><span class="eyebrow">Goal each</span><b class="num" id="home-goal">6</b></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="go-demo" class="full">Try a 45-second demo drive</button>
+      <button id="go-settings" class="ghost full">Settings</button>
+    </div>
+    <p class="muted small">Passenger use only. Never use this while driving.</p>
+  </div>
+</section>
+
+<!-- ============================== SAFETY (first run) ============================== -->
+<section class="screen" id="safety" hidden>
+  <div class="wrap">
+    <h1>Before your first ride</h1>
+    <div class="card">
+      <p><b>Passengers only.</b> The cues are meant for someone who is not driving. Never look at or tap this phone while you drive.</p>
+      <p>This is a personal experiment, not a medical device. If your sickness is severe or getting worse, talk to your doctor.</p>
+      <p class="muted small">Your ride data stays on this phone. Destination searches go to OpenStreetMap's public map services.</p>
+    </div>
+    <button class="primary" id="ack-safety">I understand</button>
+  </div>
+</section>
+
+<!-- ============================== SETUP ============================== -->
+<section class="screen" id="setup" hidden>
+  <div class="wrap">
+    <div class="row" style="justify-content: space-between;">
+      <h1>Set up this ride</h1>
+      <button class="ghost" data-nav="home">Cancel</button>
+    </div>
+
+    <div class="card">
+      <h3>1 · Location</h3>
+      <div class="status"><span class="dot wait" id="gps-dot"></span><span id="gps-text">Finding your location…</span></div>
+    </div>
+
+    <div class="card">
+      <h3>2 · Where are you going?</h3>
+      <p class="muted small">With a destination, cues arrive before each turn. Without one, you still get cues for braking and turning as they happen.</p>
+      <form id="dest-form" class="stack">
+        <label for="dest" class="small muted">Address or place</label>
+        <input id="dest" type="text" autocomplete="off" placeholder="e.g. Legacy West, Plano">
+        <button type="submit" id="dest-search">Search</button>
+      </form>
+      <div class="results-list" id="dest-results"></div>
+      <div id="route-summary" class="status" hidden></div>
+      <button class="ghost" id="no-route">Ride without a destination</button>
+    </div>
+
+    <div class="card">
+      <h3>3 · How is the phone mounted?</h3>
+      <label class="choice"><input type="radio" name="mount" value="upright" id="mount-upright"><span><b>Upright in a dash or vent mount</b><br><span class="muted small">Screen facing you, like a navigation phone.</span></span></label>
+      <label class="choice"><input type="radio" name="mount" value="flat" id="mount-flat"><span><b>Flat on the console or tray</b><br><span class="muted small">Screen up, top edge pointing at the windshield.</span></span></label>
+      <p class="muted small">Put it where you can see it from the corner of your eye while looking out the window. It must not move during the ride.</p>
+    </div>
+
+    <div class="card">
+      <h3>4 · Start</h3>
+      <p class="small" id="start-condition"></p>
+      <p class="muted small">Stay still for 2 seconds after tapping start, so the phone can learn which way is down.</p>
+      <button class="primary" id="start-ride" disabled>Start ride</button>
+      <p class="small" id="setup-error" style="color: var(--danger);" hidden></p>
+      <button class="ghost" id="start-no-motion" hidden>Start without movement cues</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== RIDE ============================== -->
+<section class="screen" id="ride" hidden>
+  <div class="glow left"></div><div class="glow right"></div><div class="glow top"></div><div class="glow bottom"></div>
+
+  <div id="turn-cue" data-dir="left">
+    <svg class="arrow l" viewBox="0 0 100 100" aria-hidden="true"><path d="M62 14 L26 50 L62 86" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="arrow r" viewBox="0 0 100 100" aria-hidden="true"><path d="M38 14 L74 50 L38 86" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="bar"></div>
+    <div id="turn-label" aria-live="assertive"></div>
+  </div>
+
+  <div class="hud">
+    <span class="pill" id="ride-pill"></span>
+    <span class="status small"><span class="dot wait" id="ride-gps-dot"></span><span id="ride-gps-text">GPS</span></span>
+  </div>
+  <div id="debug" hidden></div>
+
+  <div class="center">
+    <div class="stack">
+      <div class="clock num" id="ride-clock">0:00</div>
+      <p class="muted small" id="ride-next"></p>
+      <p class="small" id="ride-note" style="color: var(--warn);"></p>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="rate-now">Rate how I feel</button>
+    <button id="end-ride" class="danger">End ride</button>
+  </div>
+
+  <div id="rate" hidden>
+    <div class="sheet">
+      <p class="eyebrow">Check-in</p>
+      <h2>How sick do you feel right now?</h2>
+      <div class="scale" id="scale"></div>
+      <div class="scale-ends"><span>0 = not at all</span><span>20 = about to vomit</span></div>
+      <button class="ghost" id="rate-skip">Skip this one</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== END ============================== -->
+<section class="screen" id="end" hidden>
+  <div class="wrap">
+    <h1>Ride finished</h1>
+    <p class="muted" id="end-summary"></p>
+    <form id="end-form" class="stack">
+      <div class="card">
+        <h3>Where did you sit?</h3>
+        <label class="choice"><input type="radio" name="seat" value="front" required><span>Front passenger seat</span></label>
+        <label class="choice"><input type="radio" name="seat" value="rear"><span>Back seat</span></label>
+      </div>
+      <div class="card">
+        <h3>What were you mostly doing?</h3>
+        <label class="choice"><input type="radio" name="activity" value="looking-out" required><span>Looking out the window</span></label>
+        <label class="choice"><input type="radio" name="activity" value="phone"><span>Using another phone or tablet</span></label>
+        <label class="choice"><input type="radio" name="activity" value="reading"><span>Reading</span></label>
+        <label class="choice"><input type="radio" name="activity" value="eyes-closed"><span>Eyes closed or resting</span></label>
+        <label class="choice"><input type="radio" name="activity" value="mixed"><span>A mix</span></label>
+      </div>
+      <div class="card">
+        <h3>What kind of roads?</h3>
+        <label class="choice"><input type="radio" name="road" value="city" required><span>City streets, lots of stops</span></label>
+        <label class="choice"><input type="radio" name="road" value="highway"><span>Mostly highway</span></label>
+        <label class="choice"><input type="radio" name="road" value="winding"><span>Curvy or hilly</span></label>
+        <label class="choice"><input type="radio" name="road" value="mixed"><span>A mix</span></label>
+      </div>
+      <div class="card">
+        <label class="choice"><input type="checkbox" name="stoppedEarly" value="yes"><span>I had to stop or end the ride early because I felt sick</span></label>
+        <label for="notes" class="small muted">Notes (optional)</label>
+        <input id="notes" name="notes" type="text" placeholder="e.g. took medication, empty stomach, hot car">
+      </div>
+      <button type="submit" class="primary">Save ride</button>
+      <button type="button" class="ghost danger" id="discard-ride">Discard this ride</button>
+    </form>
+  </div>
+</section>
+
+<!-- ============================== RESULTS ============================== -->
+<section class="screen" id="results" hidden>
+  <div class="wrap">
+    <div class="row" style="justify-content: space-between;">
+      <h1>Results</h1>
+      <button class="ghost" data-nav="home">Done</button>
+    </div>
+    <div class="card">
+      <div class="verdict" id="verdict"><h2 id="verdict-title"></h2><p id="verdict-text"></p></div>
+      <div class="stats">
+        <div class="stat"><span class="eyebrow">Peak, cues</span><b class="num" id="r-peak-cues">–</b></div>
+        <div class="stat"><span class="eyebrow">Peak, without</span><b class="num" id="r-peak-control">–</b></div>
+        <div class="stat"><span class="eyebrow">Difference</span><b class="num" id="r-diff">–</b></div>
+      </div>
+      <p class="muted small">Peak = your highest check-in on each ride (0–20), averaged. Rides under 10 minutes or with fewer than 3 check-ins are not counted.</p>
+      <div class="plot" id="plot"></div>
+    </div>
+    <div class="card">
+      <h3>Rides</h3>
+      <div id="ride-list"></div>
+    </div>
+    <div class="card">
+      <h3>Share your data</h3>
+      <p class="muted small">Send these to Claude or your doctor to review.</p>
+      <button id="copy-summary">Copy summary</button>
+      <button id="dl-csv">Download rides (CSV)</button>
+      <button id="dl-json">Download all data (JSON)</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== SETTINGS ============================== -->
+<section class="screen" id="settings" hidden>
+  <div class="wrap">
+    <div class="row" style="justify-content: space-between;">
+      <h1>Settings</h1>
+      <button class="ghost" data-nav="home">Done</button>
+    </div>
+    <div class="card">
+      <div class="slider-row"><label for="lead">Warn before a turn</label><span class="num" id="lead-val"></span></div>
+      <input type="range" id="lead" min="1" max="4" step="0.5">
+      <p class="muted small">Studies used about 1 second. Phone GPS lags by roughly a second, so 2 seconds is the starting point. Keep it the same for your whole trial.</p>
+    </div>
+    <div class="card">
+      <label for="interval">Ask how I feel every</label>
+      <select id="interval">
+        <option value="1">1 minute</option>
+        <option value="2">2 minutes</option>
+        <option value="3">3 minutes</option>
+      </select>
+    </div>
+    <div class="card">
+      <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left: two short buzzes. Right: one long buzz. Roundabout: rapid buzzes. Stopping: one very long buzz.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Edges of the screen glow toward the direction the car is pushing you.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-debug"><span><b>Show sensor numbers</b><br><span class="muted small">For troubleshooting.</span></span></label>
+    </div>
+    <div class="card">
+      <h3>Your data</h3>
+      <p class="muted small" id="data-count"></p>
+      <button class="danger" id="clear-all">Delete all rides</button>
+    </div>
+    <p class="muted small">Map search © OpenStreetMap contributors (Nominatim). Routes by OSRM. Andar v1.0</p>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>/*
+ * Andar engine — pure logic, no DOM.
+ * Shared by the phone app today and the glasses app later.
+ *
+ *   Geo        distance / projection helpers
+ *   buildRoute OSRM response -> route with maneuvers placed along the line
+ *   RouteTracker   GPS fixes -> anticipatory turn cues (fired ~leadSec before the turn)
+ *   MotionProcessor  phone accelerometer -> car-frame braking / acceleration / turning
+ *   Trial      ride summaries, counterbalanced on/off schedule, permutation test
+ */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.CueEngine = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  /* ------------------------------------------------------------------ Geo */
+
+  const EARTH_R = 6371008.8; // meters
+  const toRad = (d) => (d * Math.PI) / 180;
+
+  function haversine(a, b) {
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  // Local flat projection around `origin` (accurate to well under 1 m over a few km).
+  function toLocal(p, origin) {
+    return {
+      x: toRad(p.lon - origin.lon) * Math.cos(toRad(origin.lat)) * EARTH_R,
+      y: toRad(p.lat - origin.lat) * EARTH_R,
+    };
+  }
+
+  // Closest point of p on segment a->b. Returns fraction t in [0,1] and distance (m).
+  function projectOnSegment(p, a, b) {
+    const pa = toLocal(p, a);
+    const ab = toLocal(b, a);
+    const len2 = ab.x * ab.x + ab.y * ab.y;
+    if (len2 === 0) return { t: 0, dist: Math.hypot(pa.x, pa.y) };
+    let t = (pa.x * ab.x + pa.y * ab.y) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return { t, dist: Math.hypot(pa.x - t * ab.x, pa.y - t * ab.y) };
+  }
+
+  function cumulativeLengths(coords) {
+    const cum = [0];
+    for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + haversine(coords[i - 1], coords[i]));
+    return cum;
+  }
+
+  // Nearest position along the polyline, searching segments [from, to).
+  function locateOnLine(p, coords, cum, from, to) {
+    let best = null;
+    const lo = Math.max(0, from);
+    const hi = Math.min(coords.length - 1, to);
+    for (let i = lo; i < hi; i++) {
+      const r = projectOnSegment(p, coords[i], coords[i + 1]);
+      if (!best || r.dist < best.dist) {
+        best = { seg: i, dist: r.dist, s: cum[i] + r.t * (cum[i + 1] - cum[i]) };
+      }
+    }
+    return best;
+  }
+
+  /* ------------------------------------------------------------ Maneuvers */
+
+  // Turn an OSRM maneuver into the cue we show, or null if it needs no cue.
+  function classifyManeuver(type, modifier) {
+    if (type === 'depart') return null;
+    if (type === 'arrive') return { dir: 'stop', strength: 'normal', label: 'Arriving' };
+    if (type === 'roundabout' || type === 'rotary' || type === 'roundabout turn') {
+      return { dir: 'roundabout', strength: 'strong', label: 'Roundabout' };
+    }
+    const mod = modifier || 'straight';
+    if (mod === 'uturn') return { dir: 'uturn', strength: 'strong', label: 'U-turn' };
+    if (mod === 'straight') return null;
+    const dir = mod.includes('left') ? 'left' : mod.includes('right') ? 'right' : null;
+    if (!dir) return null;
+    const strength = mod.startsWith('slight') ? 'light' : mod.startsWith('sharp') ? 'strong' : 'normal';
+    const word = dir === 'left' ? 'Left' : 'Right';
+    const label = strength === 'light' ? `Slight ${word.toLowerCase()}` : strength === 'strong' ? `Sharp ${word.toLowerCase()}` : word;
+    return { dir, strength, label };
+  }
+
+  // OSRM /route response (geometries=geojson, steps=true) -> route.
+  function buildRoute(osrm) {
+    if (!osrm || osrm.code !== 'Ok' || !osrm.routes || !osrm.routes.length) {
+      throw new Error('No drivable route found for that destination.');
+    }
+    const r = osrm.routes[0];
+    const coords = r.geometry.coordinates.map(([lon, lat]) => ({ lat, lon }));
+    if (coords.length < 2) throw new Error('Route is too short to track.');
+    const cum = cumulativeLengths(coords);
+    const maneuvers = [];
+    let searchFrom = 0;
+    for (const leg of r.legs || []) {
+      for (const step of leg.steps || []) {
+        const m = step.maneuver || {};
+        const cue = classifyManeuver(m.type, m.modifier);
+        if (!cue || !m.location) continue;
+        const p = { lat: m.location[1], lon: m.location[0] };
+        // Maneuvers are in order along the line; search forward to avoid matching an earlier pass.
+        const hit = locateOnLine(p, coords, cum, searchFrom, coords.length);
+        if (!hit) continue;
+        searchFrom = hit.seg;
+        maneuvers.push({ ...cue, at: hit.s, road: step.name || '' });
+      }
+    }
+    return { coords, cum, length: cum[cum.length - 1], maneuvers };
+  }
+
+  /* --------------------------------------------------------- RouteTracker */
+
+  const TRACKER_DEFAULTS = {
+    leadSec: 2.0, // cue this long before the maneuver (research used ~1 s; GPS lag adds ~1 s)
+    minSpeed: 1.5, // m/s; below this, ETA is meaningless — use distance instead
+    nearDistance: 10, // m; always cue within this distance even at crawling speed
+    offRouteMeters: 45,
+    offRouteFixes: 3,
+    maxAccuracy: 35, // ignore fixes worse than this (m)
+  };
+
+  class RouteTracker {
+    constructor(route, opts = {}) {
+      this.route = route;
+      this.o = { ...TRACKER_DEFAULTS, ...opts };
+      this.seg = 0;
+      this.s = 0;
+      this.state = route.maneuvers.map(() => 'pending'); // pending | scheduled | passed
+      this.lastFix = null;
+      this.badFixes = 0;
+      this.offRoute = false;
+    }
+
+    // fix: {lat, lon, speed (m/s|null), accuracy (m), t (ms)}; now: ms clock for latency.
+    update(fix, now = fix.t) {
+      const out = { events: [], offRoute: this.offRoute, s: this.s, next: null };
+      if (!Number.isFinite(fix.lat) || !Number.isFinite(fix.lon)) return out;
+      if (Number.isFinite(fix.accuracy) && fix.accuracy > this.o.maxAccuracy) return out;
+
+      const speed = this._speed(fix);
+      const { coords, cum } = this.route;
+      let hit = locateOnLine(fix, coords, cum, this.seg - 2, this.seg + 40);
+      if (!hit || hit.dist > this.o.offRouteMeters) {
+        const global = locateOnLine(fix, coords, cum, 0, coords.length);
+        if (global && (!hit || global.dist < hit.dist)) hit = global;
+      }
+      if (!hit) return out;
+
+      if (hit.dist > this.o.offRouteMeters) {
+        this.badFixes += 1;
+        if (this.badFixes >= this.o.offRouteFixes && !this.offRoute) {
+          this.offRoute = true;
+          out.events.push({ kind: 'offRoute' });
+        }
+        out.offRoute = this.offRoute;
+        return out;
+      }
+      this.badFixes = 0;
+      if (this.offRoute) {
+        this.offRoute = false;
+        out.events.push({ kind: 'backOnRoute' });
+      }
+      this.seg = hit.seg;
+      this.s = hit.s;
+      out.s = hit.s;
+      out.offRoute = false;
+
+      const ageSec = Math.max(0, (now - fix.t) / 1000);
+      // Distance already covered since the fix was taken.
+      const travelledSinceFix = speed * ageSec;
+
+      this.route.maneuvers.forEach((m, i) => {
+        if (this.state[i] !== 'pending') return;
+        const dist = m.at - hit.s - travelledSinceFix;
+        if (dist < -25) {
+          this.state[i] = 'passed';
+          return;
+        }
+        let fireInSec = null;
+        if (dist <= this.o.nearDistance) fireInSec = 0;
+        else if (speed >= this.o.minSpeed) {
+          const eta = dist / speed;
+          // Schedule if the cue moment falls before the next fix (~1 s away).
+          if (eta - this.o.leadSec <= 1.2) fireInSec = Math.max(0, eta - this.o.leadSec);
+        }
+        if (fireInSec !== null) {
+          this.state[i] = 'scheduled';
+          out.events.push({
+            kind: 'turn',
+            index: i,
+            dir: m.dir,
+            strength: m.strength,
+            label: m.label,
+            road: m.road,
+            fireInMs: Math.round(fireInSec * 1000),
+            distance: Math.round(Math.max(0, dist)),
+          });
+        }
+      });
+
+      const nextIdx = this.state.findIndex((st) => st === 'pending');
+      if (nextIdx >= 0) {
+        const m = this.route.maneuvers[nextIdx];
+        out.next = { index: nextIdx, label: m.label, distance: Math.max(0, Math.round(m.at - hit.s)) };
+      }
+      return out;
+    }
+
+    _speed(fix) {
+      let v = Number.isFinite(fix.speed) && fix.speed >= 0 ? fix.speed : null;
+      if (v === null && this.lastFix && fix.t > this.lastFix.t) {
+        v = haversine(this.lastFix, fix) / ((fix.t - this.lastFix.t) / 1000);
+      }
+      this.lastFix = fix;
+      return v === null ? 0 : v;
+    }
+  }
+
+  /* ------------------------------------------------------ MotionProcessor */
+
+  const vec = {
+    dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+    sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+    scale: (a, k) => [a[0] * k, a[1] * k, a[2] * k],
+    cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+    norm: (a) => Math.hypot(a[0], a[1], a[2]),
+    unit: (a) => {
+      const n = Math.hypot(a[0], a[1], a[2]);
+      return n === 0 ? [0, 0, 0] : [a[0] / n, a[1] / n, a[2] / n];
+    },
+  };
+
+  // Device axes (W3C DeviceMotion): x = right edge, y = top edge, z = out of the screen.
+  // "upright": phone stands in a dash/vent mount, screen facing you -> car forward is -z.
+  // "flat":    phone lies flat, top edge pointing at the windshield -> car forward is +y.
+  const MOUNT_FORWARD = { upright: [0, 0, -1], flat: [0, 1, 0] };
+
+  const MOTION_DEFAULTS = {
+    mount: 'upright',
+    tauSec: 0.35, // smoothing time constant
+    onThreshold: 1.2, // m/s² to start a cue (~0.12 g, a firm stop or brisk turn)
+    offThreshold: 0.8,
+    fullScale: 3.0, // m/s² that maps to full cue intensity
+  };
+
+  class MotionProcessor {
+    constructor(opts = {}) {
+      this.o = { ...MOTION_DEFAULTS, ...opts };
+      this.up = null; // unit vector, device frame
+      this.g = 9.80665;
+      this.forward = null;
+      this.left = null;
+      this.flip = 1; // -1 if GPS shows the mount is backwards
+      this.f = { long: 0, lat: 0 };
+      this.lastT = null;
+      this.active = { long: false, lat: false };
+    }
+
+    get calibrated() {
+      return this.up !== null;
+    }
+
+    // samples: [[x,y,z], ...] of accelerationIncludingGravity while the car is still.
+    calibrate(samples) {
+      if (!samples || samples.length < 10) throw new Error('Not enough motion samples to calibrate.');
+      const mean = [0, 0, 0];
+      for (const s of samples) for (let k = 0; k < 3; k++) mean[k] += s[k] / samples.length;
+      const spread = Math.max(...samples.map((s) => vec.norm(vec.sub(s, mean))));
+      if (spread > 1.5) throw new Error('Phone moved during calibration. Hold it still and try again.');
+      const g = vec.norm(mean);
+      if (g < 8 || g > 11.5) throw new Error('Motion sensor reading looks wrong. Restart the app and retry.');
+      this.g = g;
+      this.up = vec.unit(mean);
+      const hint = MOUNT_FORWARD[this.o.mount];
+      if (!hint) throw new Error(`Unknown mount type: ${this.o.mount}`);
+      // Forward = mount hint with its vertical part removed.
+      const horiz = vec.sub(hint, vec.scale(this.up, vec.dot(hint, this.up)));
+      if (vec.norm(horiz) < 0.35) {
+        throw new Error('Phone angle does not match the mount type you picked. Check the mount setting.');
+      }
+      this.forward = vec.unit(horiz);
+      this.left = vec.unit(vec.cross(this.up, this.forward));
+      this.f = { long: 0, lat: 0 };
+      this.lastT = null;
+      return { tiltDeg: Math.round((Math.acos(Math.min(1, vec.norm(horiz))) * 180) / Math.PI) };
+    }
+
+    // a: [x,y,z] accelerationIncludingGravity, t: ms. Returns car-frame values and cue intensities.
+    push(a, t) {
+      if (!this.calibrated) return null;
+      const lin = vec.sub(a, vec.scale(this.up, this.g));
+      const long = vec.dot(lin, this.forward) * this.flip;
+      const lat = vec.dot(lin, this.left) * this.flip;
+      const dt = this.lastT === null ? 0 : Math.max(0, Math.min(0.5, (t - this.lastT) / 1000));
+      this.lastT = t;
+      const k = dt === 0 ? 1 : 1 - Math.exp(-dt / this.o.tauSec);
+      this.f.long += k * (long - this.f.long);
+      this.f.lat += k * (lat - this.f.lat);
+      return { long: this.f.long, lat: this.f.lat, cue: this._cue() };
+    }
+
+    _cue() {
+      const { onThreshold, offThreshold, fullScale } = this.o;
+      const pick = (key, value) => {
+        const mag = Math.abs(value);
+        if (!this.active[key] && mag >= onThreshold) this.active[key] = true;
+        else if (this.active[key] && mag < offThreshold) this.active[key] = false;
+        if (!this.active[key]) return 0;
+        return Math.max(0, Math.min(1, (mag - offThreshold) / (fullScale - offThreshold)));
+      };
+      const longI = pick('long', this.f.long);
+      const latI = pick('lat', this.f.lat);
+      return {
+        braking: this.f.long < 0 ? longI : 0,
+        speeding: this.f.long > 0 ? longI : 0,
+        left: this.f.lat > 0 ? latI : 0,
+        right: this.f.lat < 0 ? latI : 0,
+      };
+    }
+
+    // Called by ForwardCheck when GPS proves the mount is reversed.
+    reverse() {
+      this.flip *= -1;
+      this.f = { long: -this.f.long, lat: -this.f.lat };
+    }
+  }
+
+  // Compares sensor braking/acceleration with GPS speed changes; detects a backwards mount.
+  class ForwardCheck {
+    constructor({ minDv = 1.0, votes = 5 } = {}) {
+      this.minDv = minDv; // m/s² from GPS needed to count a vote
+      this.votes = votes;
+      this.agree = 0;
+      this.disagree = 0;
+      this.prev = null;
+      this.decided = false;
+    }
+
+    // speed: GPS m/s, t: ms, sensorLong: smoothed sensor long accel at t. Returns true if a flip is needed.
+    add(speed, t, sensorLong) {
+      if (this.decided || !Number.isFinite(speed)) return false;
+      const prev = this.prev;
+      this.prev = { speed, t };
+      if (!prev || t <= prev.t) return false;
+      const gpsAccel = (speed - prev.speed) / ((t - prev.t) / 1000);
+      if (Math.abs(gpsAccel) < this.minDv || Math.abs(sensorLong) < this.minDv / 2) return false;
+      if (Math.sign(gpsAccel) === Math.sign(sensorLong)) this.agree += 1;
+      else this.disagree += 1;
+      if (this.agree + this.disagree >= this.votes) {
+        this.decided = true;
+        return this.disagree > this.agree;
+      }
+      return false;
+    }
+  }
+
+  /* --------------------------------------------------------------- Trial */
+
+  const MIN_RIDE_MINUTES = 10;
+  const MIN_RIDES_PER_ARM = 6;
+
+  // ABBA blocks reduce order effects (getting used to the car, time of day drift).
+  function nextCondition(rides) {
+    const pattern = ['cues', 'control', 'control', 'cues'];
+    const n = rides.filter((r) => !r.demo).length;
+    return pattern[n % pattern.length];
+  }
+
+  function summarizeRide(ride) {
+    const ratings = (ride.ratings || []).map((r) => r.fms).filter(Number.isFinite);
+    const minutes = (ride.endedAt - ride.startedAt) / 60000;
+    const peak = ratings.length ? Math.max(...ratings) : null;
+    const mean = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+    const usable = !ride.demo && minutes >= MIN_RIDE_MINUTES && ratings.length >= 3;
+    return { id: ride.id, condition: ride.condition, minutes, peak, mean, ratings: ratings.length, usable };
+  }
+
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+  function choose(n, k) {
+    let r = 1;
+    for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
+    return Math.round(r);
+  }
+
+  // One-sided test: are scores lower with cues than without?
+  // Returns p = share of label shuffles at least as favourable to cues as what we observed.
+  function permutationTest(cues, control, { iterations = 20000, seed = 7 } = {}) {
+    const all = cues.concat(control);
+    const k = cues.length;
+    const total = all.reduce((a, b) => a + b, 0);
+    const diffFor = (cueSum) => (total - cueSum) / control.length - cueSum / k;
+    const observed = diffFor(cues.reduce((a, b) => a + b, 0));
+    const eps = 1e-9;
+
+    if (choose(all.length, k) <= 50000) {
+      let hits = 0;
+      let count = 0;
+      const walk = (start, picked, sum) => {
+        if (picked === k) {
+          count += 1;
+          if (diffFor(sum) >= observed - eps) hits += 1;
+          return;
+        }
+        for (let i = start; i <= all.length - (k - picked); i++) walk(i + 1, picked + 1, sum + all[i]);
+      };
+      walk(0, 0, 0);
+      return { p: hits / count, observed, exact: true };
+    }
+
+    const rand = mulberry32(seed);
+    const pool = all.slice();
+    let hits = 0;
+    for (let it = 0; it < iterations; it++) {
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      let s = 0;
+      for (let i = 0; i < k; i++) s += pool[i];
+      if (diffFor(s) >= observed - eps) hits += 1;
+    }
+    return { p: (hits + 1) / (iterations + 1), observed, exact: false };
+  }
+
+  function compare(rides) {
+    const sums = rides.map(summarizeRide);
+    const usable = sums.filter((s) => s.usable);
+    const arm = (c) => usable.filter((s) => s.condition === c);
+    const cues = arm('cues');
+    const control = arm('control');
+    const stat = (xs, key) => (xs.length ? mean(xs.map((x) => x[key])) : null);
+    const result = {
+      counts: { cues: cues.length, control: control.length, excluded: sums.length - usable.length },
+      peak: { cues: stat(cues, 'peak'), control: stat(control, 'peak') },
+      mean: { cues: stat(cues, 'mean'), control: stat(control, 'mean') },
+      reductionPct: null,
+      p: null,
+      verdict: 'collecting',
+      message: '',
+    };
+    const need = MIN_RIDES_PER_ARM;
+    if (cues.length < need || control.length < need) {
+      result.message = `Keep riding. You need at least ${need} usable rides in each mode (have ${cues.length} with cues, ${control.length} without).`;
+      return result;
+    }
+    const test = permutationTest(cues.map((c) => c.peak), control.map((c) => c.peak));
+    result.p = test.p;
+    result.reductionPct = result.peak.control > 0 ? ((result.peak.control - result.peak.cues) / result.peak.control) * 100 : null;
+    if (test.p < 0.05 && result.reductionPct !== null && result.reductionPct >= 20) {
+      result.verdict = 'helped';
+      result.message = `Cues lowered your peak sickness by about ${Math.round(result.reductionPct)}%. That is unlikely to be chance (p = ${test.p.toFixed(3)}). Worth porting to the glasses.`;
+    } else if (result.reductionPct !== null && result.reductionPct <= 0) {
+      result.verdict = 'no-benefit';
+      result.message = 'Rides with cues were no better than rides without. Cues in this form are not helping you.';
+    } else {
+      result.verdict = 'unclear';
+      result.message = `There may be a small effect (${Math.round(result.reductionPct || 0)}% lower peak), but it could be chance (p = ${test.p.toFixed(3)}). Add 4 more rides in each mode.`;
+    }
+    return result;
+  }
+
+  /* ------------------------------------------------------------ Simulator */
+
+  // A short synthetic drive for the demo mode and tests: straight, left, straight, right, stop.
+  function demoDrive({ origin = { lat: 33.0198, lon: -96.6989 }, speed = 12 } = {}) {
+    const mPerDegLat = 111320;
+    const mPerDegLon = 111320 * Math.cos(toRad(origin.lat));
+    const pt = (east, north) => ({ lat: origin.lat + north / mPerDegLat, lon: origin.lon + east / mPerDegLon });
+    // Heading north 400 m, left (west) 300 m, right (north) 300 m.
+    const corners = [pt(0, 0), pt(0, 400), pt(-300, 400), pt(-300, 700)];
+    const osrm = {
+      code: 'Ok',
+      routes: [
+        {
+          geometry: { coordinates: corners.map((c) => [c.lon, c.lat]) },
+          legs: [
+            {
+              steps: [
+                { name: 'Demo Ave', maneuver: { type: 'depart', location: [corners[0].lon, corners[0].lat] } },
+                { name: 'Sample St', maneuver: { type: 'turn', modifier: 'left', location: [corners[1].lon, corners[1].lat] } },
+                { name: 'Test Rd', maneuver: { type: 'turn', modifier: 'right', location: [corners[2].lon, corners[2].lat] } },
+                { name: '', maneuver: { type: 'arrive', location: [corners[3].lon, corners[3].lat] } },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    // Per-second fixes plus the car-frame acceleration at that second.
+    const legs = [
+      { from: [0, 0], to: [0, 400] },
+      { from: [0, 400], to: [-300, 400] },
+      { from: [-300, 400], to: [-300, 700] },
+    ];
+    const timeline = [];
+    let t = 0;
+    legs.forEach((leg, li) => {
+      const len = Math.hypot(leg.to[0] - leg.from[0], leg.to[1] - leg.from[1]);
+      const steps = Math.round(len / speed);
+      for (let i = 0; i < steps; i++) {
+        const f = i / steps;
+        const e = leg.from[0] + (leg.to[0] - leg.from[0]) * f;
+        const n = leg.from[1] + (leg.to[1] - leg.from[1]) * f;
+        const secondsLeft = steps - i;
+        // Brake for the last 3 s before each corner/stop, turn for the first 2 s after one.
+        let long = 0;
+        let lat = 0;
+        if (secondsLeft <= 3) long = -2.2;
+        if (li > 0 && i < 2) lat = li === 1 ? 2.6 : -2.6; // + = left
+        timeline.push({ t, fix: { ...pt(e, n), speed, accuracy: 6 }, long, lat });
+        t += 1000;
+      }
+    });
+    return { osrm, timeline };
+  }
+
+  return {
+    haversine,
+    projectOnSegment,
+    classifyManeuver,
+    buildRoute,
+    RouteTracker,
+    MotionProcessor,
+    ForwardCheck,
+    MOUNT_FORWARD,
+    nextCondition,
+    summarizeRide,
+    permutationTest,
+    compare,
+    demoDrive,
+    MIN_RIDE_MINUTES,
+    MIN_RIDES_PER_ARM,
+  };
+});
+</script>
+<script>/* Andar phone app. All decision logic lives in engine.js (CueEngine); this file is I/O and UI. */
+(function () {
+  'use strict';
+  const E = window.CueEngine;
+  const $ = (sel, el = document) => el.querySelector(sel);
+  const $$ = (sel, el = document) => Array.from(el.querySelectorAll(sel));
+
+  /* ------------------------------------------------------------ Storage */
+
+  const KEY = 'andar.v1';
+  const DEFAULT_SETTINGS = {
+    mount: 'upright',
+    leadSec: 2,
+    ratingEveryMin: 2,
+    vibrate: true,
+    motionCues: true,
+    debug: false,
+    safetyAck: false,
+  };
+  const store = {
+    settings: { ...DEFAULT_SETTINGS },
+    rides: [],
+    load() {
+      try {
+        const raw = localStorage.getItem(KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        this.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+        this.rides = Array.isArray(data.rides) ? data.rides : [];
+      } catch (_) {
+        /* Corrupt or blocked storage: start clean, keep running. */
+      }
+    },
+    save() {
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ settings: this.settings, rides: this.rides }));
+        return true;
+      } catch (_) {
+        toast('This phone would not save your data. Download it from Results now.');
+        return false;
+      }
+    },
+  };
+
+  /* ----------------------------------------------------------------- UI */
+
+  let toastTimer = null;
+  function toast(msg, ms = 3500) {
+    const el = $('#toast');
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (el.hidden = true), ms);
+  }
+
+  const renderers = {};
+  function show(id) {
+    $$('.screen').forEach((s) => (s.hidden = s.id !== id));
+    window.scrollTo(0, 0);
+    if (renderers[id]) renderers[id]();
+  }
+  document.addEventListener('click', (e) => {
+    const nav = e.target.closest('[data-nav]');
+    if (nav) show(nav.dataset.nav);
+  });
+
+  // Two-tap confirmation, since the frame and many phones suppress confirm().
+  function confirmTap(btn, label, action) {
+    if (btn.dataset.armed === '1') {
+      btn.dataset.armed = '';
+      btn.textContent = btn.dataset.label;
+      action();
+      return;
+    }
+    btn.dataset.label = btn.textContent;
+    btn.dataset.armed = '1';
+    btn.textContent = label;
+    setTimeout(() => {
+      if (btn.dataset.armed === '1') {
+        btn.dataset.armed = '';
+        btn.textContent = btn.dataset.label;
+      }
+    }, 4000);
+  }
+
+  const fmtClock = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  const fmt1 = (x) => (x === null || x === undefined ? '–' : (Math.round(x * 10) / 10).toFixed(1));
+  const conditionLabel = (c) => (c === 'cues' ? 'Cues on' : 'Cues off');
+
+  /* ------------------------------------------------------------ Haptics */
+
+  const PATTERNS = {
+    left: [90, 70, 90],
+    right: [260],
+    roundabout: [60, 50, 60, 50, 60],
+    uturn: [260, 80, 260],
+    stop: [500],
+    prompt: [40],
+  };
+  function buzz(name) {
+    if (!store.settings.vibrate || typeof navigator.vibrate !== 'function') return;
+    try {
+      navigator.vibrate(PATTERNS[name] || [100]);
+    } catch (_) {
+      /* Some browsers throw if called without user activation; cues still show on screen. */
+    }
+  }
+
+  /* ---------------------------------------------------------- Cue view */
+
+  let turnTimer = null;
+  function showTurn(ev) {
+    const el = $('#turn-cue');
+    el.dataset.dir = ev.dir;
+    el.dataset.strength = ev.strength;
+    $('#turn-label').textContent = ev.road && ev.dir !== 'stop' ? `${ev.label} onto ${ev.road}` : ev.label;
+    el.classList.remove('show');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('show');
+    clearTimeout(turnTimer);
+    turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+  function setGlow(cue) {
+    const s = $('#ride').style;
+    s.setProperty('--g-left', cue ? cue.left.toFixed(2) : 0);
+    s.setProperty('--g-right', cue ? cue.right.toFixed(2) : 0);
+    s.setProperty('--g-top', cue ? cue.speeding.toFixed(2) : 0);
+    s.setProperty('--g-bottom', cue ? cue.braking.toFixed(2) : 0);
+  }
+
+  /* ------------------------------------------------------------- Sensors */
+
+  const gps = { last: null, watchId: null, listeners: new Set() };
+  function startGps() {
+    if (gps.watchId !== null) return;
+    if (!('geolocation' in navigator)) {
+      setGpsStatus('bad', 'This browser has no location access. Use Chrome on Android.');
+      return;
+    }
+    gps.watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const c = pos.coords;
+        gps.last = {
+          lat: c.latitude,
+          lon: c.longitude,
+          accuracy: c.accuracy,
+          speed: Number.isFinite(c.speed) ? c.speed : null,
+          t: pos.timestamp || Date.now(),
+        };
+        gps.listeners.forEach((fn) => fn(gps.last));
+      },
+      (err) => {
+        const msg =
+          err.code === err.PERMISSION_DENIED
+            ? 'Location is blocked. Allow location for this site in Chrome settings, then reload.'
+            : 'Cannot get a location fix yet. Make sure location is on.';
+        gps.listeners.forEach((fn) => fn(null, msg));
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+  }
+  function setGpsStatus(kind, text) {
+    $('#gps-dot').className = `dot ${kind}`;
+    $('#gps-text').textContent = text;
+  }
+
+  const motion = { listeners: new Set(), seen: false };
+  function onDeviceMotion(e) {
+    const a = e.accelerationIncludingGravity;
+    if (!a || !Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(a.z)) return;
+    motion.seen = true;
+    const sample = [a.x, a.y, a.z];
+    const t = performance.now();
+    motion.listeners.forEach((fn) => fn(sample, t));
+  }
+  async function startMotion() {
+    // iPhone needs an explicit permission tap; Android does not.
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        const res = await DeviceMotionEvent.requestPermission();
+        if (res !== 'granted') return false;
+      } catch (_) {
+        return false;
+      }
+    }
+    window.removeEventListener('devicemotion', onDeviceMotion);
+    window.addEventListener('devicemotion', onDeviceMotion);
+    return true;
+  }
+  function collectStill(ms) {
+    return new Promise((resolve) => {
+      const samples = [];
+      const fn = (s) => samples.push(s);
+      motion.listeners.add(fn);
+      setTimeout(() => {
+        motion.listeners.delete(fn);
+        resolve(samples);
+      }, ms);
+    });
+  }
+
+  let wakeLock = null;
+  async function keepAwake(on) {
+    try {
+      if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+      else if (!on && wakeLock) {
+        await wakeLock.release();
+        wakeLock = null;
+      }
+    } catch (_) {
+      if (on) toast('Could not keep the screen on. Set screen timeout to 10 minutes or more.', 5000);
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && session && !session.ended) keepAwake(true);
+  });
+
+  /* ------------------------------------------------------- Map services */
+
+  async function fetchJson(url, timeoutMs = 9000) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`Map service answered ${res.status}. Try again in a minute.`);
+      return await res.json();
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('Map service did not answer. Check your signal and try again.');
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  function searchPlaces(q, near) {
+    const p = new URLSearchParams({ q, format: 'jsonv2', limit: '5', addressdetails: '0' });
+    if (near) {
+      const d = 0.6; // ~60 km box to prefer nearby results without excluding others
+      p.set('viewbox', [near.lon - d, near.lat + d, near.lon + d, near.lat - d].join(','));
+    }
+    return fetchJson(`https://nominatim.openstreetmap.org/search?${p}`);
+  }
+  async function fetchRoute(from, to) {
+    const url =
+      `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}` +
+      '?overview=full&geometries=geojson&steps=true';
+    return E.buildRoute(await fetchJson(url, 12000));
+  }
+
+  /* ------------------------------------------------------------- Session */
+
+  let session = null;
+
+  function makeSession({ condition, route, motionProc, demo }) {
+    return {
+      id: `r${Date.now().toString(36)}`,
+      condition,
+      demo: !!demo,
+      route,
+      tracker: route ? new E.RouteTracker(route, { leadSec: store.settings.leadSec }) : null,
+      motionProc,
+      forwardCheck: new E.ForwardCheck(),
+      startedAt: Date.now(),
+      ratings: [],
+      cues: [],
+      timers: [],
+      flipped: false,
+      fixes: 0,
+      lastFixAt: 0,
+      lastMotion: null,
+      ended: false,
+      promptOpen: false,
+      promptOpenedAt: 0,
+    };
+  }
+
+  const cuesVisible = () => session && session.condition === 'cues';
+
+  function logCue(kind, detail) {
+    session.cues.push({ t: Date.now() - session.startedAt, kind, ...detail, shown: cuesVisible() });
+  }
+
+  function handleFix(fix) {
+    if (!session || session.ended || !fix) return;
+    session.fixes += 1;
+    session.lastFixAt = Date.now();
+    updateRideGps(fix);
+    if (session.motionProc && session.lastMotion && !session.flipped) {
+      if (session.forwardCheck.add(fix.speed, fix.t, session.lastMotion.long)) {
+        session.motionProc.reverse();
+        session.flipped = true;
+        logCue('mountReversed', {});
+      }
+    }
+    if (!session.tracker) return;
+    const res = session.tracker.update(fix, session.demo ? fix.t : Date.now());
+    const scale = session.demo ? 1 / DEMO_SPEEDUP : 1;
+    for (const ev of res.events) {
+      if (ev.kind === 'offRoute') {
+        $('#ride-note').textContent = 'Off the planned route. Turn cues paused; movement cues still work.';
+        logCue('offRoute', {});
+      } else if (ev.kind === 'backOnRoute') {
+        $('#ride-note').textContent = '';
+        logCue('backOnRoute', {});
+      } else if (ev.kind === 'turn') {
+        const timer = setTimeout(() => {
+          if (!session || session.ended) return;
+          logCue('turn', { dir: ev.dir, label: ev.label });
+          if (cuesVisible()) {
+            showTurn(ev);
+            buzz(ev.dir);
+          }
+        }, ev.fireInMs * scale);
+        session.timers.push(timer);
+      }
+    }
+    $('#ride-next').textContent =
+      res.offRoute || !res.next ? '' : `Next: ${res.next.label.toLowerCase()} in ${res.next.distance} m`;
+    if (!cuesVisible()) $('#ride-next').textContent = '';
+    renderDebug(fix, res);
+  }
+
+  let motionPeak = { long: 0, lat: 0 };
+  function handleMotion(sample, t) {
+    if (!session || session.ended || !session.motionProc) return;
+    const out = session.motionProc.push(sample, t);
+    if (!out) return;
+    session.lastMotion = out;
+    motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
+    motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
+    if (cuesVisible() && store.settings.motionCues) setGlow(out.cue);
+  }
+
+  function updateRideGps(fix) {
+    const good = fix.accuracy <= 25;
+    $('#ride-gps-dot').className = `dot ${good ? 'ok' : 'wait'}`;
+    $('#ride-gps-text').textContent = good ? 'GPS good' : `GPS ±${Math.round(fix.accuracy)} m`;
+  }
+
+  function renderDebug(fix, res) {
+    const el = $('#debug');
+    el.hidden = !store.settings.debug;
+    if (el.hidden) return;
+    const m = session.lastMotion;
+    el.textContent = [
+      `speed  ${fix.speed === null ? '–' : (fix.speed * 3.6).toFixed(0)} km/h`,
+      `gps    ±${Math.round(fix.accuracy)} m`,
+      `along  ${res ? Math.round(res.s) : '–'} m`,
+      `next   ${res && res.next ? res.next.distance + ' m' : '–'}`,
+      `long   ${m ? m.long.toFixed(2) : '–'} m/s²`,
+      `lat    ${m ? m.lat.toFixed(2) : '–'} m/s²`,
+      `flip   ${session.flipped ? 'yes' : 'no'}`,
+    ].join('\n');
+  }
+
+  /* -------------------------------------------------------- Check-ins */
+
+  function buildScale() {
+    const box = $('#scale');
+    box.innerHTML = '';
+    for (let v = 0; v <= 20; v++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = v;
+      b.dataset.v = v;
+      b.setAttribute('aria-label', `${v} out of 20`);
+      box.appendChild(b);
+    }
+  }
+  function openPrompt() {
+    if (!session || session.ended || session.promptOpen) return;
+    session.promptOpen = true;
+    session.promptOpenedAt = Date.now();
+    $('#rate').hidden = false;
+    buzz('prompt');
+  }
+  function closePrompt() {
+    if (!session) return;
+    session.promptOpen = false;
+    $('#rate').hidden = true;
+  }
+  $('#scale').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-v]');
+    if (!b || !session) return;
+    session.ratings.push({ t: Date.now() - session.startedAt, fms: Number(b.dataset.v) });
+    closePrompt();
+    if (session.finishing) finishRide();
+  });
+  $('#rate-skip').addEventListener('click', () => {
+    if (session && session.finishing) finishRide();
+    else closePrompt();
+  });
+  $('#rate-now').addEventListener('click', openPrompt);
+
+  /* ------------------------------------------------------- Ride lifecycle */
+
+  let clockTimer = null;
+  let ratingTimer = null;
+  let staleTimer = null;
+
+  function beginRide() {
+    show('ride');
+    const pill = $('#ride-pill');
+    pill.className = `pill ${session.condition}`;
+    pill.textContent = session.demo ? 'Demo · cues on' : conditionLabel(session.condition);
+    $('#ride-note').textContent = session.motionProc ? '' : 'Movement cues off: no motion sensor.';
+    if (!session.tracker && session.condition === 'cues') {
+      $('#ride-note').textContent += session.motionProc ? 'No destination: movement cues only.' : '';
+    }
+    setGlow(null);
+    keepAwake(true);
+    gps.listeners.add(handleFix);
+    motion.listeners.add(handleMotion);
+    motionPeak = { long: 0, lat: 0 };
+
+    clockTimer = setInterval(() => {
+      $('#ride-clock').textContent = fmtClock(Date.now() - session.startedAt);
+    }, 500);
+    const every = session.demo ? 15000 : store.settings.ratingEveryMin * 60000;
+    ratingTimer = setInterval(openPrompt, every);
+    staleTimer = setInterval(() => {
+      // Unanswered prompts close after 45 s so they do not pile up.
+      if (session.promptOpen && Date.now() - session.promptOpenedAt > 45000) {
+        closePrompt();
+        if (session.finishing) return finishRide();
+      }
+      if (!session.demo && Date.now() - session.lastFixAt > 10000) {
+        $('#ride-gps-dot').className = 'dot bad';
+        $('#ride-gps-text').textContent = 'No GPS';
+      }
+    }, 1000);
+    setTimeout(openPrompt, 600); // baseline rating
+  }
+
+  function stopRideIo() {
+    session.ended = true;
+    clearInterval(clockTimer);
+    clearInterval(ratingTimer);
+    clearInterval(staleTimer);
+    session.timers.forEach(clearTimeout);
+    if (session.demoTimer) clearInterval(session.demoTimer);
+    gps.listeners.delete(handleFix);
+    motion.listeners.delete(handleMotion);
+    keepAwake(false);
+    setGlow(null);
+    closePrompt();
+  }
+
+  $('#end-ride').addEventListener('click', (e) => {
+    confirmTap(e.currentTarget, 'Tap again to end', () => {
+      session.finishing = true;
+      // Final check-in unless one was given in the last minute.
+      const last = session.ratings[session.ratings.length - 1];
+      if (!last || Date.now() - session.startedAt - last.t > 60000) openPrompt();
+      else finishRide();
+    });
+  });
+
+  function finishRide() {
+    stopRideIo();
+    session.endedAt = Date.now();
+    if (session.demo) {
+      const shown = session.cues.filter((c) => c.kind === 'turn').length;
+      toast(`Demo finished: ${shown} turn cues fired. Nothing was saved.`, 5000);
+      session = null;
+      show('home');
+      return;
+    }
+    const mins = (session.endedAt - session.startedAt) / 60000;
+    $('#end-summary').textContent =
+      `${conditionLabel(session.condition)} · ${mins.toFixed(0)} min · ${session.ratings.length} check-ins` +
+      (mins < E.MIN_RIDE_MINUTES ? ` · rides under ${E.MIN_RIDE_MINUTES} minutes are kept but not counted in results.` : '');
+    $('#end-form').reset();
+    show('end');
+  }
+
+  $('#end-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    store.rides.push({
+      id: session.id,
+      condition: session.condition,
+      demo: false,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      ratings: session.ratings,
+      cues: session.cues,
+      details: {
+        seat: f.get('seat'),
+        activity: f.get('activity'),
+        road: f.get('road'),
+        stoppedEarly: f.get('stoppedEarly') === 'yes',
+        notes: String(f.get('notes') || '').slice(0, 500),
+      },
+      setup: {
+        leadSec: store.settings.leadSec,
+        mount: store.settings.mount,
+        motionCues: store.settings.motionCues,
+        vibrate: store.settings.vibrate,
+        hadRoute: !!session.route,
+        routeKm: session.route ? Math.round(session.route.length / 100) / 10 : null,
+        motionSensor: !!session.motionProc,
+        mountReversed: session.flipped,
+        gpsFixes: session.fixes,
+        peakLongMs2: Math.round(motionPeak.long * 10) / 10,
+        peakLatMs2: Math.round(motionPeak.lat * 10) / 10,
+      },
+    });
+    session = null;
+    if (store.save()) toast('Ride saved.');
+    show('results');
+  });
+  $('#discard-ride').addEventListener('click', (e) => {
+    confirmTap(e.currentTarget, 'Tap again to discard', () => {
+      session = null;
+      toast('Ride discarded.');
+      show('home');
+    });
+  });
+
+  /* ------------------------------------------------------------- Setup */
+
+  const setup = { route: null, routeChosen: false, origin: null };
+
+  function setupGpsListener(fix, err) {
+    if (err) return setGpsStatus('bad', err);
+    setup.origin = fix;
+    const good = fix.accuracy <= 30;
+    setGpsStatus(good ? 'ok' : 'wait', good ? `Located (±${Math.round(fix.accuracy)} m)` : `Weak fix (±${Math.round(fix.accuracy)} m). Move near a window.`);
+  }
+
+  renderers.setup = () => {
+    setup.route = null;
+    setup.routeChosen = false;
+    $('#dest-results').innerHTML = '';
+    $('#route-summary').hidden = true;
+    $('#setup-error').hidden = true;
+    $('#start-no-motion').hidden = true;
+    $(`#mount-${store.settings.mount}`).checked = true;
+    const next = E.nextCondition(store.rides);
+    $('#start-condition').innerHTML =
+      next === 'cues'
+        ? '<span class="pill cues">Cues on</span> This ride shows cues.'
+        : '<span class="pill control">Cues off</span> Comparison ride: the app records but shows no cues. These rides are what prove whether cues work.';
+    gps.listeners.add(setupGpsListener);
+    if (gps.last) setupGpsListener(gps.last);
+    startGps();
+    refreshStart();
+  };
+
+  function refreshStart() {
+    $('#start-ride').disabled = !setup.routeChosen;
+  }
+
+  $('#dest-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = $('#dest').value.trim();
+    if (!q) return;
+    const btn = $('#dest-search');
+    btn.disabled = true;
+    btn.textContent = 'Searching…';
+    const box = $('#dest-results');
+    box.innerHTML = '';
+    try {
+      const places = await searchPlaces(q, setup.origin);
+      if (!places.length) {
+        box.innerHTML = '<p class="muted small">No places found. Try a fuller address.</p>';
+      }
+      for (const pl of places) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'result-btn';
+        b.textContent = pl.display_name;
+        b.addEventListener('click', () => chooseDestination({ lat: Number(pl.lat), lon: Number(pl.lon) }, pl.display_name));
+        box.appendChild(b);
+      }
+    } catch (err) {
+      box.innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'small';
+      p.style.color = 'var(--danger)';
+      p.textContent = err.message;
+      box.appendChild(p);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Search';
+    }
+  });
+
+  async function chooseDestination(dest, name) {
+    const sum = $('#route-summary');
+    sum.hidden = false;
+    if (!setup.origin) {
+      sum.innerHTML = '<span class="dot bad"></span><span>Waiting for your location before planning the route.</span>';
+      return;
+    }
+    sum.innerHTML = '<span class="dot wait"></span><span>Planning route…</span>';
+    try {
+      const route = await fetchRoute(setup.origin, dest);
+      setup.route = route;
+      setup.routeChosen = true;
+      const turns = route.maneuvers.filter((m) => m.dir !== 'stop').length;
+      sum.innerHTML = '';
+      sum.append(Object.assign(document.createElement('span'), { className: 'dot ok' }));
+      sum.append(
+        Object.assign(document.createElement('span'), {
+          textContent: `${(route.length / 1000).toFixed(1)} km to ${name.split(',')[0]} · ${turns} turns to cue`,
+        })
+      );
+      $('#dest-results').innerHTML = '';
+    } catch (err) {
+      sum.innerHTML = '<span class="dot bad"></span>';
+      sum.append(Object.assign(document.createElement('span'), { textContent: err.message }));
+    }
+    refreshStart();
+  }
+
+  $('#no-route').addEventListener('click', () => {
+    setup.route = null;
+    setup.routeChosen = true;
+    const sum = $('#route-summary');
+    sum.hidden = false;
+    sum.innerHTML = '<span class="dot ok"></span><span>No destination. Movement cues only.</span>';
+    $('#dest-results').innerHTML = '';
+    refreshStart();
+  });
+
+  $$('input[name="mount"]').forEach((r) =>
+    r.addEventListener('change', () => {
+      store.settings.mount = r.value;
+      store.save();
+    })
+  );
+
+  async function startFromSetup(useMotion) {
+    const err = $('#setup-error');
+    err.hidden = true;
+    const btn = $('#start-ride');
+    btn.disabled = true;
+    btn.textContent = 'Hold still…';
+    let motionProc = null;
+    try {
+      if (useMotion) {
+        const allowed = await startMotion();
+        if (!allowed) throw new Error('Motion access was refused.');
+        const samples = await collectStill(2000);
+        if (!motion.seen || samples.length < 10) {
+          throw new Error('This browser is not giving motion data. Use Chrome on Android, or start without movement cues.');
+        }
+        motionProc = new E.MotionProcessor({ mount: store.settings.mount });
+        motionProc.calibrate(samples);
+      }
+    } catch (e) {
+      err.textContent = e.message;
+      err.hidden = false;
+      $('#start-no-motion').hidden = false;
+      btn.textContent = 'Start ride';
+      refreshStart();
+      return;
+    }
+    gps.listeners.delete(setupGpsListener);
+    btn.textContent = 'Start ride';
+    session = makeSession({ condition: E.nextCondition(store.rides), route: setup.route, motionProc });
+    beginRide();
+  }
+  $('#start-ride').addEventListener('click', () => startFromSetup(true));
+  $('#start-no-motion').addEventListener('click', () => startFromSetup(false));
+
+  /* -------------------------------------------------------------- Demo */
+
+  const DEMO_SPEEDUP = 2;
+  function startDemo() {
+    const { osrm, timeline } = E.demoDrive();
+    const route = E.buildRoute(osrm);
+    // A virtual phone lying flat, so the demo exercises the same motion code as a real ride.
+    const motionProc = new E.MotionProcessor({ mount: 'flat' });
+    const G = 9.80665;
+    motionProc.calibrate(Array.from({ length: 20 }, () => [0, 0, G]));
+    session = makeSession({ condition: 'cues', route, motionProc, demo: true });
+    session.lastFixAt = Date.now();
+    beginRide();
+
+    let i = 0;
+    let simT = 0;
+    const tickMs = 40; // 25 Hz motion samples in real time
+    session.demoTimer = setInterval(() => {
+      if (!session || session.ended) return;
+      simT += tickMs * DEMO_SPEEDUP;
+      const step = timeline[Math.min(i, timeline.length - 1)];
+      // Car-frame acceleration -> what a flat phone would read (left = -x, forward = +y).
+      handleMotion([-step.lat, step.long, G], performance.now());
+      if (simT >= timeline[Math.min(i, timeline.length - 1)].t) {
+        if (i < timeline.length) {
+          session.lastFixAt = Date.now();
+          handleFix({ ...timeline[i].fix, t: timeline[i].t });
+          i += 1;
+        } else {
+          finishRide();
+        }
+      }
+    }, tickMs);
+  }
+  $('#go-demo').addEventListener('click', () => {
+    if (!store.settings.safetyAck) return show('safety');
+    startDemo();
+  });
+
+  /* ----------------------------------------------------------- Home */
+
+  renderers.home = () => {
+    const real = store.rides.filter((r) => !r.demo);
+    const usable = real.map(E.summarizeRide).filter((s) => s.usable);
+    $('#home-cues').textContent = usable.filter((s) => s.condition === 'cues').length;
+    $('#home-control').textContent = usable.filter((s) => s.condition === 'control').length;
+    $('#home-goal').textContent = E.MIN_RIDES_PER_ARM;
+    const next = E.nextCondition(store.rides);
+    const pill = $('#next-pill');
+    pill.className = `pill ${next}`;
+    pill.textContent = conditionLabel(next);
+    $('#next-explain').textContent =
+      next === 'cues'
+        ? 'You will see and feel cues before turns and during braking.'
+        : 'Comparison ride: the app records your check-ins but shows no cues. Without these rides there is nothing to compare against.';
+  };
+  $('#go-setup').addEventListener('click', () => show(store.settings.safetyAck ? 'setup' : 'safety'));
+  $('#go-results').addEventListener('click', () => show('results'));
+  $('#go-settings').addEventListener('click', () => show('settings'));
+  $('#ack-safety').addEventListener('click', () => {
+    store.settings.safetyAck = true;
+    store.save();
+    show('setup');
+  });
+
+  /* --------------------------------------------------------- Results */
+
+  function plotSvg(rides) {
+    const sums = rides.map(E.summarizeRide).filter((s) => s.usable);
+    if (!sums.length) return '<p class="muted small">Your rides will appear here.</p>';
+    const W = 320;
+    const H = 120;
+    const left = 70;
+    const right = 12;
+    const x = (v) => left + (v / 20) * (W - left - right);
+    const rowY = { cues: 34, control: 78 };
+    let marks = '';
+    for (const s of sums) {
+      const color = s.condition === 'cues' ? 'var(--cue)' : 'var(--control)';
+      marks += `<circle cx="${x(s.peak).toFixed(1)}" cy="${rowY[s.condition]}" r="6" fill="${color}" fill-opacity="0.75"/>`;
+    }
+    let ticks = '';
+    for (const v of [0, 5, 10, 15, 20]) {
+      ticks += `<line x1="${x(v)}" x2="${x(v)}" y1="18" y2="94" stroke="var(--line)"/>`;
+      ticks += `<text x="${x(v)}" y="112" text-anchor="middle">${v}</text>`;
+    }
+    return (
+      `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Peak sickness per ride, cues on versus off">` +
+      ticks +
+      `<text x="0" y="${rowY.cues + 4}">Cues on</text><text x="0" y="${rowY.control + 4}">Cues off</text>` +
+      marks +
+      '</svg>'
+    );
+  }
+
+  renderers.results = () => {
+    const real = store.rides.filter((r) => !r.demo);
+    const c = E.compare(real);
+    const v = $('#verdict');
+    v.className = `verdict ${c.verdict}`;
+    $('#verdict-title').textContent = {
+      collecting: 'Still collecting',
+      helped: 'Cues helped',
+      'no-benefit': 'No benefit so far',
+      unclear: 'Not clear yet',
+    }[c.verdict];
+    $('#verdict-text').textContent = c.message;
+    $('#r-peak-cues').textContent = fmt1(c.peak.cues);
+    $('#r-peak-control').textContent = fmt1(c.peak.control);
+    $('#r-diff').textContent =
+      c.peak.cues !== null && c.peak.control !== null ? fmt1(c.peak.control - c.peak.cues) : '–';
+    $('#plot').innerHTML = plotSvg(real);
+
+    const list = $('#ride-list');
+    list.innerHTML = '';
+    if (!real.length) list.innerHTML = '<p class="muted small">No rides yet.</p>';
+    real
+      .slice()
+      .reverse()
+      .forEach((r) => {
+        const s = E.summarizeRide(r);
+        const item = document.createElement('div');
+        item.className = 'ride-item';
+        const info = document.createElement('div');
+        info.innerHTML =
+          `<span class="pill ${r.condition}">${conditionLabel(r.condition)}</span> ` +
+          `<span class="small">${new Date(r.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>` +
+          `<div class="small muted">${s.minutes.toFixed(0)} min · peak ${s.peak ?? '–'} · ${s.ratings} check-ins${s.usable ? '' : ' · not counted'}</div>`;
+        const del = document.createElement('button');
+        del.className = 'ghost danger small';
+        del.textContent = 'Delete';
+        del.addEventListener('click', () =>
+          confirmTap(del, 'Confirm', () => {
+            store.rides = store.rides.filter((x) => x.id !== r.id);
+            store.save();
+            renderers.results();
+          })
+        );
+        item.append(info, del);
+        list.appendChild(item);
+      });
+  };
+
+  function summaryText() {
+    const real = store.rides.filter((r) => !r.demo);
+    const c = E.compare(real);
+    const lines = [
+      'Andar motion sickness trial',
+      `Usable rides: ${c.counts.cues} with cues, ${c.counts.control} without (${c.counts.excluded} not counted)`,
+      `Average peak sickness (0-20): cues ${fmt1(c.peak.cues)}, without ${fmt1(c.peak.control)}`,
+      `Average sickness (0-20): cues ${fmt1(c.mean.cues)}, without ${fmt1(c.mean.control)}`,
+      c.p !== null ? `One-sided permutation test on peak: p = ${c.p.toFixed(3)}` : '',
+      `Verdict: ${c.message}`,
+      `Settings: warn ${store.settings.leadSec}s before turns, mount ${store.settings.mount}`,
+    ];
+    return lines.filter(Boolean).join('\n');
+  }
+
+  $('#copy-summary').addEventListener('click', async () => {
+    const text = summaryText();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Summary copied.');
+    } catch (_) {
+      toast('Copy was blocked. Use Download instead.');
+    }
+  });
+
+  function download(name, mime, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  const csvCell = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  function ridesCsv() {
+    const head = [
+      'ride_id', 'started', 'condition', 'minutes', 'peak_fms', 'mean_fms', 'checkins', 'counted',
+      'seat', 'activity', 'road', 'stopped_early', 'had_route', 'turn_cues', 'lead_sec', 'mount',
+      'peak_long_ms2', 'peak_lat_ms2', 'notes',
+    ];
+    const rows = store.rides
+      .filter((r) => !r.demo)
+      .map((r) => {
+        const s = E.summarizeRide(r);
+        const d = r.details || {};
+        const u = r.setup || {};
+        return [
+          r.id, new Date(r.startedAt).toISOString(), r.condition, s.minutes.toFixed(1), s.peak,
+          s.mean === null ? '' : s.mean.toFixed(2), s.ratings, s.usable ? 'yes' : 'no',
+          d.seat, d.activity, d.road, d.stoppedEarly ? 'yes' : 'no', u.hadRoute ? 'yes' : 'no',
+          (r.cues || []).filter((c) => c.kind === 'turn').length, u.leadSec, u.mount,
+          u.peakLongMs2, u.peakLatMs2, d.notes,
+        ].map(csvCell).join(',');
+      });
+    return [head.join(','), ...rows].join('\n');
+  }
+  const stamp = () => new Date().toISOString().slice(0, 10);
+  $('#dl-csv').addEventListener('click', () => download(`andar-rides-${stamp()}.csv`, 'text/csv', ridesCsv()));
+  $('#dl-json').addEventListener('click', () =>
+    download(`andar-data-${stamp()}.json`, 'application/json', JSON.stringify({ version: 1, ...store }, null, 2))
+  );
+
+  /* -------------------------------------------------------- Settings */
+
+  renderers.settings = () => {
+    const s = store.settings;
+    $('#lead').value = s.leadSec;
+    $('#lead-val').textContent = `${s.leadSec} s`;
+    $('#interval').value = String(s.ratingEveryMin);
+    $('#opt-vibrate').checked = s.vibrate;
+    $('#opt-motion').checked = s.motionCues;
+    $('#opt-debug').checked = s.debug;
+    $('#data-count').textContent = `${store.rides.length} rides stored on this phone.`;
+  };
+  $('#lead').addEventListener('input', (e) => {
+    store.settings.leadSec = Number(e.target.value);
+    $('#lead-val').textContent = `${store.settings.leadSec} s`;
+    store.save();
+  });
+  $('#interval').addEventListener('change', (e) => {
+    store.settings.ratingEveryMin = Number(e.target.value);
+    store.save();
+  });
+  [['#opt-vibrate', 'vibrate'], ['#opt-motion', 'motionCues'], ['#opt-debug', 'debug']].forEach(([sel, key]) =>
+    $(sel).addEventListener('change', (e) => {
+      store.settings[key] = e.target.checked;
+      store.save();
+    })
+  );
+  $('#clear-all').addEventListener('click', (e) =>
+    confirmTap(e.currentTarget, 'Tap again to delete everything', () => {
+      store.rides = [];
+      store.save();
+      renderers.settings();
+      toast('All rides deleted.');
+    })
+  );
+
+  /* ------------------------------------------------------------ Boot */
+
+  store.load();
+  buildScale();
+  show('home');
+  // Test hook: lets the automated browser test drive the demo without waiting in real time.
+  window.__andar = { store, get session() { return session; }, E };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+# Andar — Phase 1 phone prototype
+
+*Andar*: Tagalog and Spanish for "to move, to keep going."
+
+Andar tests one question: **do cues that warn you about turns and braking before they happen lower your car sickness?**
+
+It runs in Chrome on your Android phone. On "cues on" rides it shows an arrow and vibrates about 2 seconds before each turn on your route, and makes the screen edges glow when the car brakes or turns. On "cues off" rides it records the same data but shows nothing, so you have something to compare against. After enough rides it tells you whether the cues helped.
+
+The decision logic lives in `src/engine.js` with no phone-specific code, so the same engine moves to the glasses in Phase 2.
+
+## Using it
+
+1. Open the app link in **Chrome on Android**. Tap ⋮ → **Add to Home screen** so it opens like an app.
+2. First run: allow **location** when asked.
+3. Try the **45-second demo drive** once to see and feel what cues look like.
+4. Before each real ride: **Start a ride** → search the destination (or ride without one) → pick how the phone is mounted → **Start ride**, then keep the phone still for 2 seconds.
+5. During the ride, answer the check-in every 2 minutes: 0 = not sick at all, 20 = about to vomit.
+6. At the end, tap **End ride** twice and answer the three quick questions.
+
+Keep the app open and the screen on during the ride. The app asks the phone to stay awake; if your screen still turns off, set the screen timeout to 10 minutes or more.
+
+## The ride protocol
+
+The app decides each ride's mode for you (cues on, off, off, on, repeating). Follow it even when you'd rather have cues; the off rides are what prove anything.
+
+| Rule | Why |
+|---|---|
+| Passenger only. Never use it while driving. | Safety. |
+| Rides of **10 minutes or longer**. Shorter rides are saved but not counted. | Sickness needs time to build. |
+| At least **6 rides in each mode** (12 total). | Fewer rides can't separate a real effect from a good or bad day. |
+| Keep conditions similar across modes: same seat when you can, similar roads, same activity. | So the only difference is the cues. |
+| Don't change medication, Reliefband or other remedies mid-trial. If you use one, use it on every ride and note it. | Otherwise you're testing the remedy, not the cues. |
+| Keep "Warn before a turn" at the same setting for the whole trial. | Changing it mid-trial mixes two experiments. |
+| Rate honestly, even if a cues-on ride felt bad. | The verdict is only as good as the ratings. |
+
+When you have 6+ usable rides in each mode, **Results** gives one of four verdicts: still collecting, cues helped, no benefit, or not clear yet (add 4 more rides each). "Cues helped" requires at least a 20% lower average peak and a less-than-5% chance that the difference is luck (one-sided permutation test).
+
+**Known limit:** you know which mode each ride is in, so expectation can affect your ratings. That's unavoidable in a self-test; the rules above keep it as small as possible.
+
+## How the cues work
+
+- **Before turns** (needs a destination): the route comes from OSRM; the phone's GPS tracks where you are along it, estimates when you'll reach each turn, and fires the cue 2 seconds early, correcting for GPS delay. Left = arrow on the left + two short buzzes; right = arrow on the right + one long buzz; roundabout = both arrows + rapid buzzes; arriving = bar + one very long buzz. If you leave the route, turn cues pause.
+- **During braking and turning** (always): the phone's motion sensor, calibrated at the start, reports the car's acceleration. Above about 0.12 g the screen edge glows toward the direction the car pushes: bottom = braking, top = speeding up, left/right = turning. If the phone was mounted backwards, the app detects it from GPS speed changes and corrects itself.
+
+## Your data
+
+Everything stays on the phone (browser storage). Results → **Download rides (CSV)** or **Download all data (JSON)** to share with Claude or your doctor. Destination searches go to OpenStreetMap's public services (Nominatim for search, OSRM for routes); nothing else leaves the phone. Clearing Chrome's site data deletes your rides, so export now and then.
+
+This is a personal experiment, not a medical device.
+
+## For developers
+
+```
+npm test          # 25 engine unit tests + 4 browser end-to-end tests
+npm run build     # inlines engine + app into dist/index.html (single file, no dependencies)
+```
+
+`dist/index.html` must be served over HTTPS (or localhost): browsers only give location and motion data to secure pages. Map services used: `nominatim.openstreetmap.org` and `router.project-osrm.org` (public demo server, light personal use only; switch to a hosted routing API before sharing Andar with other people).
