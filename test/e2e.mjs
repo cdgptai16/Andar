@@ -59,9 +59,13 @@ async function newPage({ clock = false } = {}) {
   // Record every turn label the app shows.
   await page.evaluate(() => {
     window.__labels = [];
+    window.__levels = [];
     new MutationObserver(() => {
       const t = document.querySelector('#turn-label').textContent;
-      if (t) window.__labels.push(t);
+      if (t) {
+        window.__labels.push(t);
+        window.__levels.push(`${document.querySelector('#turn-cue').dataset.level}:${t}`);
+      }
     }).observe(document.querySelector('#turn-label'), { childList: true, characterData: true, subtree: true });
   });
   return { context, page, errors };
@@ -81,7 +85,7 @@ async function startMotionFeed(page) {
       k += 1;
       window.dispatchEvent(
         new DeviceMotionEvent('devicemotion', {
-          accelerationIncludingGravity: { x: 0.02 * Math.sin(k), y: 9.81, z: 0.03 },
+          accelerationIncludingGravity: { x: 0.02 * Math.sin(k), y: 9.81, z: window.__accZ || 0.03 },
         })
       );
     }, 20);
@@ -133,7 +137,7 @@ await check('demo drive cues every maneuver and saves nothing', async () => {
   await page.waitForSelector('#home:not([hidden])');
   const labels = await page.evaluate(() => window.__labels);
   assert.ok(labels.some((l) => l.startsWith('Left')), `labels: ${labels}`);
-  assert.ok(labels.some((l) => l.startsWith('Right')), `labels: ${labels}`);
+  assert.ok(labels.some((l) => l.startsWith('Sharp right')), `labels: ${labels}`);
   assert.ok(labels.includes('Arriving'), `labels: ${labels}`);
   assert.match(await page.textContent('#toast'), /Demo finished: 3 turn cues fired/);
   assert.equal(await page.evaluate(() => window.__andar.store.rides.length), 0);
@@ -150,7 +154,38 @@ await check('cues-on ride shows turn cues, saves, and schedules a cues-off ride 
   await driveRoute(context);
   const labels = await page.evaluate(() => window.__labels);
   assert.ok(labels.some((l) => l === 'Left onto Sample St'), `labels: ${labels}`);
-  assert.ok(labels.some((l) => l === 'Right onto Test Rd'), `labels: ${labels}`);
+  assert.ok(labels.some((l) => l === 'Sharp right onto Test Rd'), `labels: ${labels}`);
+  const levels = await page.evaluate(() => window.__levels);
+  assert.ok(levels.includes('2:Left onto Sample St'), `levels: ${levels}`);
+  assert.ok(levels.includes('3:Sharp right onto Test Rd'), `levels: ${levels}`);
+  // Two chevrons visible for a normal left; three for a sharp right.
+  const visibleChevrons = (dir, level) =>
+    page.evaluate(([d, l]) => {
+      const cue = document.querySelector('#turn-cue');
+      cue.dataset.dir = d;
+      cue.dataset.level = String(l);
+      const group = document.querySelector(d === 'left' ? '.chev.l' : '.chev.r');
+      return [...group.querySelectorAll('svg')].filter((x) => getComputedStyle(x).display !== 'none').length;
+    }, [dir, level]);
+  assert.equal(await visibleChevrons('left', 1), 1);
+  assert.equal(await visibleChevrons('left', 2), 2);
+  assert.equal(await visibleChevrons('right', 3), 3);
+  // Vibration count matches chevron count; direction by pulse length.
+  const pat = await page.evaluate(() => [
+    window.__andar.hapticPattern('left', 1),
+    window.__andar.hapticPattern('left', 2),
+    window.__andar.hapticPattern('right', 3),
+  ]);
+  assert.deepEqual(pat, [[90], [90, 90, 90], [260, 110, 260, 110, 260]]);
+  // Hard braking now: dots appear at the bottom edge only.
+  await page.evaluate(() => (window.__accZ = 2.8));
+  await page.waitForFunction(() => Number(document.querySelector('.dots.bottom').dataset.n) >= 2, null, { timeout: 4000 });
+  const sides = await page.evaluate(() =>
+    ['left', 'right', 'top'].map((s) => document.querySelector(`.dots.${s}`).dataset.n)
+  );
+  assert.deepEqual(sides, ['0', '0', '0']);
+  await page.evaluate(() => (window.__accZ = 0.03));
+  await page.waitForFunction(() => document.querySelector('.dots.bottom').dataset.n === '0', null, { timeout: 4000 });
   await endAndSave(page);
 
   const ride = await page.evaluate(() => window.__andar.store.rides[0]);
@@ -166,7 +201,7 @@ await check('cues-on ride shows turn cues, saves, and schedules a cues-off ride 
   assert.equal(await page.textContent('#next-pill'), 'Cues off');
 
   // Cues-off ride
-  await page.evaluate(() => (window.__labels = []));
+  await page.evaluate(() => { window.__labels = []; window.__levels = []; });
   await page.click('#go-setup');
   await page.waitForSelector('#setup:not([hidden])');
   assert.match(await page.textContent('#start-condition'), /Cues off/);

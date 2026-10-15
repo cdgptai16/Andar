@@ -26,9 +26,12 @@ test('classifyManeuver maps OSRM types to cues', () => {
   assert.equal(E.classifyManeuver('depart'), null);
   assert.equal(E.classifyManeuver('turn', 'straight'), null);
   assert.equal(E.classifyManeuver('new name', undefined), null);
-  assert.deepEqual(E.classifyManeuver('turn', 'left'), { dir: 'left', strength: 'normal', label: 'Left' });
-  assert.equal(E.classifyManeuver('turn', 'slight right').strength, 'light');
-  assert.equal(E.classifyManeuver('turn', 'sharp left').strength, 'strong');
+  assert.deepEqual(E.classifyManeuver('turn', 'left'), { dir: 'left', strength: 'normal', level: 2, label: 'Left' });
+  assert.equal(E.classifyManeuver('turn', 'slight right').level, 1);
+  assert.equal(E.classifyManeuver('turn', 'slight right').label, 'Slight right');
+  assert.equal(E.classifyManeuver('turn', 'sharp left').level, 3);
+  assert.equal(E.classifyManeuver('turn', 'sharp left').label, 'Sharp left');
+  assert.equal(E.classifyManeuver('roundabout', 'right').level, 3);
   assert.equal(E.classifyManeuver('turn', 'uturn').dir, 'uturn');
   assert.equal(E.classifyManeuver('roundabout', 'right').dir, 'roundabout');
   assert.equal(E.classifyManeuver('arrive').dir, 'stop');
@@ -69,6 +72,7 @@ test('RouteTracker cues each maneuver once, in order, about leadSec early', () =
   const speed = 12;
   const { fired, route } = runDrive({ speed, tracker: { leadSec: 2 } });
   assert.deepEqual(fired.map((f) => f.dir), ['left', 'right', 'stop']);
+  assert.deepEqual(fired.map((f) => f.level), [2, 3, 2], 'demo has a normal left and a sharp right');
   // The car reaches maneuver i at (at / speed) seconds. Steps are whole seconds, so allow ~1 s.
   route.maneuvers.forEach((m, i) => {
     const arrivalMs = (m.at / speed) * 1000;
@@ -118,6 +122,16 @@ test('RouteTracker cues a turn at crawling speed once close enough', () => {
   const res = tracker.update({ lat: corner.lat - 5 / 111320, lon: corner.lon, speed: 0.5, accuracy: 5, t: 0 });
   assert.equal(res.events[0].dir, 'left');
   assert.equal(res.events[0].fireInMs, 0);
+});
+
+test('dotCount maps movement strength to 0–3 dots', () => {
+  assert.equal(E.dotCount(0), 0);
+  assert.equal(E.dotCount(undefined), 0);
+  assert.equal(E.dotCount(NaN), 0);
+  assert.equal(E.dotCount(0.1), 1);
+  assert.equal(E.dotCount(0.5), 2);
+  assert.equal(E.dotCount(0.9), 3);
+  assert.equal(E.dotCount(1), 3);
 });
 
 /* ----------------------------------------------------- MotionProcessor */

@@ -70,22 +70,34 @@
 
   /* ------------------------------------------------------------ Maneuvers */
 
+  // Cue intensity is a count (1–3), never a color: the glasses display is green-only,
+  // and counts read the same for color-blind users. 1 = slight, 2 = normal, 3 = sharp.
+  const LEVEL = { light: 1, normal: 2, strong: 3 };
+
   // Turn an OSRM maneuver into the cue we show, or null if it needs no cue.
   function classifyManeuver(type, modifier) {
     if (type === 'depart') return null;
-    if (type === 'arrive') return { dir: 'stop', strength: 'normal', label: 'Arriving' };
+    if (type === 'arrive') return { dir: 'stop', strength: 'normal', level: 2, label: 'Arriving' };
     if (type === 'roundabout' || type === 'rotary' || type === 'roundabout turn') {
-      return { dir: 'roundabout', strength: 'strong', label: 'Roundabout' };
+      return { dir: 'roundabout', strength: 'strong', level: 3, label: 'Roundabout' };
     }
     const mod = modifier || 'straight';
-    if (mod === 'uturn') return { dir: 'uturn', strength: 'strong', label: 'U-turn' };
+    if (mod === 'uturn') return { dir: 'uturn', strength: 'strong', level: 3, label: 'U-turn' };
     if (mod === 'straight') return null;
     const dir = mod.includes('left') ? 'left' : mod.includes('right') ? 'right' : null;
     if (!dir) return null;
     const strength = mod.startsWith('slight') ? 'light' : mod.startsWith('sharp') ? 'strong' : 'normal';
     const word = dir === 'left' ? 'Left' : 'Right';
     const label = strength === 'light' ? `Slight ${word.toLowerCase()}` : strength === 'strong' ? `Sharp ${word.toLowerCase()}` : word;
-    return { dir, strength, label };
+    return { dir, strength, level: LEVEL[strength], label };
+  }
+
+  // Motion-cue intensity (0..1) -> number of dots to show at that edge (0–3).
+  function dotCount(intensity) {
+    if (!(intensity > 0)) return 0;
+    if (intensity < 1 / 3) return 1;
+    if (intensity < 2 / 3) return 2;
+    return 3;
   }
 
   // OSRM /route response (geometries=geojson, steps=true) -> route.
@@ -197,6 +209,7 @@
             index: i,
             dir: m.dir,
             strength: m.strength,
+            level: m.level,
             label: m.label,
             road: m.road,
             fireInMs: Math.round(fireInSec * 1000),
@@ -497,7 +510,7 @@
               steps: [
                 { name: 'Demo Ave', maneuver: { type: 'depart', location: [corners[0].lon, corners[0].lat] } },
                 { name: 'Sample St', maneuver: { type: 'turn', modifier: 'left', location: [corners[1].lon, corners[1].lat] } },
-                { name: 'Test Rd', maneuver: { type: 'turn', modifier: 'right', location: [corners[2].lon, corners[2].lat] } },
+                { name: 'Test Rd', maneuver: { type: 'turn', modifier: 'sharp right', location: [corners[2].lon, corners[2].lat] } },
                 { name: '', maneuver: { type: 'arrive', location: [corners[3].lon, corners[3].lat] } },
               ],
             },
@@ -537,6 +550,7 @@
     haversine,
     projectOnSegment,
     classifyManeuver,
+    dotCount,
     buildRoute,
     RouteTracker,
     MotionProcessor,

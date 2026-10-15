@@ -4,7 +4,7 @@
 
 Andar tests one question: **do cues that warn you about turns and braking before they happen lower your car sickness?**
 
-It runs in Chrome on your Android phone. On "cues on" rides it shows an arrow and vibrates about 2 seconds before each turn on your route, and makes the screen edges glow when the car brakes or turns. On "cues off" rides it records the same data but shows nothing, so you have something to compare against. After enough rides it tells you whether the cues helped.
+It runs in Chrome on your Android phone. On "cues on" rides it shows chevrons and vibrates about 2 seconds before each turn on your route (1, 2 or 3 for slight, normal or sharp), and shows dots at the screen edge when the car brakes or turns. On "cues off" rides it records the same data but shows nothing, so you have something to compare against. After enough rides it tells you whether the cues helped.
 
 The decision logic lives in `src/engine.js` with no phone-specific code, so the same engine moves to the glasses in Phase 2.
 
@@ -39,8 +39,9 @@ When you have 6+ usable rides in each mode, **Results** gives one of four verdic
 
 ## How the cues work
 
-- **Before turns** (needs a destination): the route comes from OSRM; the phone's GPS tracks where you are along it, estimates when you'll reach each turn, and fires the cue 2 seconds early, correcting for GPS delay. Left = arrow on the left + two short buzzes; right = arrow on the right + one long buzz; roundabout = both arrows + rapid buzzes; arriving = bar + one very long buzz. If you leave the route, turn cues pause.
-- **During braking and turning** (always): the phone's motion sensor, calibrated at the start, reports the car's acceleration. Above about 0.12 g the screen edge glows toward the direction the car pushes: bottom = braking, top = speeding up, left/right = turning. If the phone was mounted backwards, the app detects it from GPS speed changes and corrects itself.
+- **Strength is shown by count, never by color alone**: 1 = slight, 2 = normal, 3 = sharp. This works on the green-only glasses display and for color-blind users. An optional phone-only color layer (green, amber, orange) can be turned on in Settings; if you use it, keep it on for the whole trial.
+- **Before turns** (needs a destination): the route comes from OSRM; the phone's GPS tracks where you are along it, estimates when you'll reach each turn, and fires the cue 2 seconds early, correcting for GPS delay. Chevrons appear on the side of the turn (1, 2 or 3 of them) and the phone buzzes the same number of times: short buzzes for left, long buzzes for right. Roundabouts and U-turns show chevrons on both sides; arriving shows three dots and one very long buzz. If you leave the route, turn cues pause.
+- **During braking and turning** (always): the phone's motion sensor, calibrated at the start, reports the car's acceleration. Up to three dots appear at the edge the car pushes you toward: bottom = braking, top = speeding up, left/right = turning. More dots means a stronger push. If the phone was mounted backwards, the app detects it from GPS speed changes and corrects itself.
 
 ## Your data
 
@@ -51,7 +52,7 @@ This is a personal experiment, not a medical device.
 ## For developers
 
 ```
-npm test          # 25 engine unit tests + 4 browser end-to-end tests
+npm test          # 26 engine unit tests + 4 browser end-to-end tests
 npm run build     # inlines engine + app into dist/index.html (single file, no dependencies)
 ```
 

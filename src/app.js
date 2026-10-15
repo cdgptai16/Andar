@@ -14,6 +14,7 @@
     ratingEveryMin: 2,
     vibrate: true,
     motionCues: true,
+    colorLevels: false,
     debug: false,
     safetyAck: false,
   };
@@ -92,18 +93,23 @@
 
   /* ------------------------------------------------------------ Haptics */
 
-  const PATTERNS = {
-    left: [90, 70, 90],
-    right: [260],
-    roundabout: [60, 50, 60, 50, 60],
-    uturn: [260, 80, 260],
-    stop: [500],
-    prompt: [40],
-  };
-  function buzz(name) {
+  // Direction by pulse length (left short, right long); strength by pulse count (1–3),
+  // matching the number of chevrons on screen.
+  function hapticPattern(dir, level = 2) {
+    const n = Math.max(1, Math.min(3, level));
+    const train = (on, gap) => Array.from({ length: n * 2 - 1 }, (_, i) => (i % 2 === 0 ? on : gap));
+    if (dir === 'left') return train(90, 90);
+    if (dir === 'right') return train(260, 110);
+    if (dir === 'roundabout') return [90, 90, 260, 110, 90];
+    if (dir === 'uturn') return [260, 110, 260, 110, 260];
+    if (dir === 'stop') return [600];
+    if (dir === 'prompt') return [40];
+    return [120];
+  }
+  function buzz(name, level) {
     if (!store.settings.vibrate || typeof navigator.vibrate !== 'function') return;
     try {
-      navigator.vibrate(PATTERNS[name] || [100]);
+      navigator.vibrate(hapticPattern(name, level));
     } catch (_) {
       /* Some browsers throw if called without user activation; cues still show on screen. */
     }
@@ -115,7 +121,7 @@
   function showTurn(ev) {
     const el = $('#turn-cue');
     el.dataset.dir = ev.dir;
-    el.dataset.strength = ev.strength;
+    el.dataset.level = String(ev.level || 2);
     $('#turn-label').textContent = ev.road && ev.dir !== 'stop' ? `${ev.label} onto ${ev.road}` : ev.label;
     el.classList.remove('show');
     void el.offsetWidth; // restart the animation
@@ -123,12 +129,17 @@
     clearTimeout(turnTimer);
     turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
-  function setGlow(cue) {
-    const s = $('#ride').style;
-    s.setProperty('--g-left', cue ? cue.left.toFixed(2) : 0);
-    s.setProperty('--g-right', cue ? cue.right.toFixed(2) : 0);
-    s.setProperty('--g-top', cue ? cue.speeding.toFixed(2) : 0);
-    s.setProperty('--g-bottom', cue ? cue.braking.toFixed(2) : 0);
+  // Dots at the edge the car pushes you toward: bottom = braking, top = speeding up.
+  function setDots(cue) {
+    const set = (side, v) => {
+      const el = $(`.dots.${side}`);
+      const n = String(cue ? E.dotCount(v) : 0);
+      if (el.dataset.n !== n) el.dataset.n = n;
+    };
+    set('left', cue && cue.left);
+    set('right', cue && cue.right);
+    set('top', cue && cue.speeding);
+    set('bottom', cue && cue.braking);
   }
 
   /* ------------------------------------------------------------- Sensors */
@@ -307,10 +318,10 @@
       } else if (ev.kind === 'turn') {
         const timer = setTimeout(() => {
           if (!session || session.ended) return;
-          logCue('turn', { dir: ev.dir, label: ev.label });
+          logCue('turn', { dir: ev.dir, level: ev.level, label: ev.label });
           if (cuesVisible()) {
             showTurn(ev);
-            buzz(ev.dir);
+            buzz(ev.dir, ev.level);
           }
         }, ev.fireInMs * scale);
         session.timers.push(timer);
@@ -330,7 +341,7 @@
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setGlow(out.cue);
+    if (cuesVisible() && store.settings.motionCues) setDots(out.cue);
   }
 
   function updateRideGps(fix) {
@@ -409,7 +420,8 @@
     if (!session.tracker && session.condition === 'cues') {
       $('#ride-note').textContent += session.motionProc ? 'No destination: movement cues only.' : '';
     }
-    setGlow(null);
+    setDots(null);
+    $('#ride').classList.toggle('color-levels', !!store.settings.colorLevels);
     keepAwake(true);
     gps.listeners.add(handleFix);
     motion.listeners.add(handleMotion);
@@ -444,7 +456,7 @@
     gps.listeners.delete(handleFix);
     motion.listeners.delete(handleMotion);
     keepAwake(false);
-    setGlow(null);
+    setDots(null);
     closePrompt();
   }
 
@@ -498,6 +510,7 @@
         leadSec: store.settings.leadSec,
         mount: store.settings.mount,
         motionCues: store.settings.motionCues,
+        colorLevels: store.settings.colorLevels,
         vibrate: store.settings.vibrate,
         hadRoute: !!session.route,
         routeKm: session.route ? Math.round(session.route.length / 100) / 10 : null,
@@ -887,6 +900,7 @@
     $('#interval').value = String(s.ratingEveryMin);
     $('#opt-vibrate').checked = s.vibrate;
     $('#opt-motion').checked = s.motionCues;
+    $('#opt-color').checked = s.colorLevels;
     $('#opt-debug').checked = s.debug;
     $('#data-count').textContent = `${store.rides.length} rides stored on this phone.`;
   };
@@ -899,7 +913,7 @@
     store.settings.ratingEveryMin = Number(e.target.value);
     store.save();
   });
-  [['#opt-vibrate', 'vibrate'], ['#opt-motion', 'motionCues'], ['#opt-debug', 'debug']].forEach(([sel, key]) =>
+  [['#opt-vibrate', 'vibrate'], ['#opt-motion', 'motionCues'], ['#opt-color', 'colorLevels'], ['#opt-debug', 'debug']].forEach(([sel, key]) =>
     $(sel).addEventListener('change', (e) => {
       store.settings[key] = e.target.checked;
       store.save();
@@ -920,5 +934,5 @@
   buildScale();
   show('home');
   // Test hook: lets the automated browser test drive the demo without waiting in real time.
-  window.__andar = { store, get session() { return session; }, E };
+  window.__andar = { store, get session() { return session; }, E, hapticPattern };
 })();

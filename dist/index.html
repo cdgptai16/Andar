@@ -18,6 +18,8 @@
   --cue-ink: #062a21;
   --control: #9aa8ba;
   --warn: #f2b84b;
+  --lvl2: #f2b84b;       /* optional phone color layer: amber */
+  --lvl3: #f28a3c;       /* optional phone color layer: deep orange (no red: reads as danger) */
   --danger: #f27474;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
@@ -28,7 +30,7 @@
   :root {
     --bg: #f3f6f8; --surface: #ffffff; --surface-2: #e9eef2; --line: #d3dbe2;
     --fg: #0f1a24; --muted: #566575; --cue: #0f9f7d; --cue-ink: #ffffff;
-    --control: #5c6b7c; --warn: #a96b00; --danger: #c43c3c; color-scheme: light;
+    --control: #5c6b7c; --warn: #a96b00; --lvl2: #a96b00; --lvl3: #c2561a; --danger: #c43c3c; color-scheme: light;
   }
 }
 * { box-sizing: border-box; }
@@ -115,32 +117,52 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 }
 #ride .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 0 64px; }
 #ride .center .clock { font-size: 3rem; font-weight: 700; }
+#ride .center { transition: opacity 150ms linear; }
+#ride:has(#turn-cue.show) .center { opacity: 0.12; }
 #debug { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: 64px; font: 12px/1.5 var(--mono); color: var(--muted); z-index: 5; white-space: pre; }
 
-/* Cues sit above the check-in sheet (z 10) so a turn is never hidden while you rate. */
-.glow { position: absolute; pointer-events: none; opacity: 0; transition: opacity 120ms linear; z-index: 11; }
-.glow.left   { left: 0; top: 0; bottom: 0; width: 26vw; background: linear-gradient(90deg, var(--cue), transparent); opacity: var(--g-left, 0); }
-.glow.right  { right: 0; top: 0; bottom: 0; width: 26vw; background: linear-gradient(270deg, var(--cue), transparent); opacity: var(--g-right, 0); }
-.glow.top    { left: 0; right: 0; top: 0; height: 18vh; background: linear-gradient(180deg, var(--cue), transparent); opacity: var(--g-top, 0); }
-.glow.bottom { left: 0; right: 0; bottom: 0; height: 18vh; background: linear-gradient(0deg, var(--cue), transparent); opacity: var(--g-bottom, 0); }
-
-#turn-cue { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 12; }
+/* Cues sit above the check-in sheet (z 10) so a turn is never hidden while you rate.
+   Intensity is shown by COUNT (1–3 chevrons or dots) and brightness, never by color alone:
+   the glasses display is green-only and some people can't tell red from green. */
+#turn-cue { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 12; color: var(--cue); }
 #turn-cue.show { animation: cue-in 2.4s ease-out forwards; }
-#turn-cue .arrow { position: absolute; top: 50%; width: 30vw; max-width: 180px; transform: translateY(-50%); color: var(--cue); }
-#turn-cue[data-dir="left"] .arrow.l, #turn-cue[data-dir="roundabout"] .arrow.l, #turn-cue[data-dir="uturn"] .arrow.l { display: block; }
-#turn-cue[data-dir="right"] .arrow.r, #turn-cue[data-dir="roundabout"] .arrow.r { display: block; }
-#turn-cue .arrow { display: none; }
-#turn-cue .arrow.l { left: max(8px, env(safe-area-inset-left, 0px)); }
-#turn-cue .arrow.r { right: max(8px, env(safe-area-inset-right, 0px)); }
-#turn-cue .bar { display: none; position: absolute; left: 8vw; right: 8vw; bottom: 22vh; height: 14px; border-radius: 7px; background: var(--cue); }
-#turn-cue[data-dir="stop"] .bar { display: block; }
-#turn-cue[data-strength="light"] .arrow { opacity: 0.65; }
-#turn-label { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-weight: 700; font-size: 1.375rem; color: var(--cue); }
+.chev { display: none; position: absolute; top: 50%; transform: translateY(-50%); gap: 2px; }
+.chev.l { left: max(6px, env(safe-area-inset-left, 0px)); flex-direction: row; }
+.chev.r { right: max(6px, env(safe-area-inset-right, 0px)); flex-direction: row-reverse; }
+.chev svg { display: none; width: clamp(34px, 10.5vw, 72px); height: auto; }
+.chev svg:nth-child(1),
+#turn-cue[data-level="2"] .chev svg:nth-child(2),
+#turn-cue[data-level="3"] .chev svg:nth-child(2),
+#turn-cue[data-level="3"] .chev svg:nth-child(3) { display: block; }
+#turn-cue[data-dir="left"] .chev.l, #turn-cue[data-dir="roundabout"] .chev, #turn-cue[data-dir="uturn"] .chev { display: flex; }
+#turn-cue[data-dir="right"] .chev.r { display: flex; }
+#turn-cue[data-level="1"] .chev { opacity: 0.55; }
+#turn-cue[data-level="2"] .chev { opacity: 0.8; }
+.stopdots { display: none; position: absolute; left: 0; right: 0; bottom: 22vh; justify-content: center; gap: 22px; }
+.stopdots span { width: 18px; height: 18px; border-radius: 50%; background: currentColor; }
+#turn-cue[data-dir="stop"] .stopdots { display: flex; }
+#turn-label { position: absolute; left: 0; right: 0; top: 28%; text-align: center; font-weight: 700; font-size: 1.375rem; }
 @keyframes cue-in { 0% { opacity: 0; } 12% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
-#turn-cue[data-dir="left"].show .arrow.l { animation: nudge-l 0.8s ease-in-out 3; }
-#turn-cue[data-dir="right"].show .arrow.r { animation: nudge-r 0.8s ease-in-out 3; }
-@keyframes nudge-l { 50% { transform: translate(-14px, -50%); } }
-@keyframes nudge-r { 50% { transform: translate(14px, -50%); } }
+#turn-cue[data-dir="left"].show .chev.l { animation: nudge-l 0.8s ease-in-out 3; }
+#turn-cue[data-dir="right"].show .chev.r { animation: nudge-r 0.8s ease-in-out 3; }
+@keyframes nudge-l { 50% { transform: translate(-12px, -50%); } }
+@keyframes nudge-r { 50% { transform: translate(12px, -50%); } }
+
+/* Optional phone-only color layer (Settings). Count still carries the meaning. */
+#ride.color-levels #turn-cue[data-level="1"] { color: var(--cue); }
+#ride.color-levels #turn-cue[data-level="2"] { color: var(--lvl2); }
+#ride.color-levels #turn-cue[data-level="3"] { color: var(--lvl3); }
+
+/* Movement happening now: up to 3 dots at the edge the car pushes you toward. */
+.dots { position: absolute; display: flex; gap: 14px; pointer-events: none; z-index: 11; }
+.dots span { display: none; width: 14px; height: 14px; border-radius: 50%; background: var(--cue); }
+.dots[data-n="1"] span:nth-child(1),
+.dots[data-n="2"] span:nth-child(-n+2),
+.dots[data-n="3"] span { display: block; }
+.dots.left { left: max(10px, env(safe-area-inset-left, 0px)); top: 50%; transform: translateY(-50%); flex-direction: column; }
+.dots.right { right: max(10px, env(safe-area-inset-right, 0px)); top: 50%; transform: translateY(-50%); flex-direction: column; }
+.dots.top { top: calc(56px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); }
+.dots.bottom { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); }
 
 /* Rating sheet */
 #rate { position: absolute; inset: 0; z-index: 10; background: var(--bg); display: grid; align-content: center; }
@@ -151,8 +173,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 .scale-ends { display: flex; justify-content: space-between; gap: 12px; font-size: 0.8125rem; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
-  #turn-cue.show .arrow { animation: none !important; }
-  .glow { transition: none; }
+  #turn-cue.show .chev { animation: none !important; }
 }
 </style>
 </head>
@@ -255,12 +276,13 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
 <!-- ============================== RIDE ============================== -->
 <section class="screen" id="ride" hidden>
-  <div class="glow left"></div><div class="glow right"></div><div class="glow top"></div><div class="glow bottom"></div>
+  <div class="dots left" data-n="0"><span></span><span></span><span></span></div><div class="dots right" data-n="0"><span></span><span></span><span></span></div>
+  <div class="dots top" data-n="0"><span></span><span></span><span></span></div><div class="dots bottom" data-n="0"><span></span><span></span><span></span></div>
 
-  <div id="turn-cue" data-dir="left">
-    <svg class="arrow l" viewBox="0 0 100 100" aria-hidden="true"><path d="M62 14 L26 50 L62 86" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <svg class="arrow r" viewBox="0 0 100 100" aria-hidden="true"><path d="M38 14 L74 50 L38 86" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <div class="bar"></div>
+  <div id="turn-cue" data-dir="left" data-level="2">
+    <div class="chev l"><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="chev r"><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M16 14 L46 50 L16 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M16 14 L46 50 L16 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M16 14 L46 50 L16 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="stopdots"><span></span><span></span><span></span></div>
     <div id="turn-label" aria-live="assertive"></div>
   </div>
 
@@ -383,8 +405,9 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       </select>
     </div>
     <div class="card">
-      <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left: two short buzzes. Right: one long buzz. Roundabout: rapid buzzes. Stopping: one very long buzz.</span></span></label>
-      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Edges of the screen glow toward the direction the car is pushing you.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left turns buzz short, right turns buzz long. The number of buzzes matches the chevrons: 1 slight, 2 normal, 3 sharp. Arriving: one very long buzz.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Up to three dots appear at the edge the car is pushing you toward. More dots means a stronger push.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-color"><span><b>Color by strength (phone only)</b><br><span class="muted small">Green, amber, orange for 1, 2, 3 chevrons. The glasses show green only, so the count is what matters. If you turn this on, keep it on for the whole trial.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-debug"><span><b>Show sensor numbers</b><br><span class="muted small">For troubleshooting.</span></span></label>
     </div>
     <div class="card">
@@ -470,22 +493,34 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
   /* ------------------------------------------------------------ Maneuvers */
 
+  // Cue intensity is a count (1–3), never a color: the glasses display is green-only,
+  // and counts read the same for color-blind users. 1 = slight, 2 = normal, 3 = sharp.
+  const LEVEL = { light: 1, normal: 2, strong: 3 };
+
   // Turn an OSRM maneuver into the cue we show, or null if it needs no cue.
   function classifyManeuver(type, modifier) {
     if (type === 'depart') return null;
-    if (type === 'arrive') return { dir: 'stop', strength: 'normal', label: 'Arriving' };
+    if (type === 'arrive') return { dir: 'stop', strength: 'normal', level: 2, label: 'Arriving' };
     if (type === 'roundabout' || type === 'rotary' || type === 'roundabout turn') {
-      return { dir: 'roundabout', strength: 'strong', label: 'Roundabout' };
+      return { dir: 'roundabout', strength: 'strong', level: 3, label: 'Roundabout' };
     }
     const mod = modifier || 'straight';
-    if (mod === 'uturn') return { dir: 'uturn', strength: 'strong', label: 'U-turn' };
+    if (mod === 'uturn') return { dir: 'uturn', strength: 'strong', level: 3, label: 'U-turn' };
     if (mod === 'straight') return null;
     const dir = mod.includes('left') ? 'left' : mod.includes('right') ? 'right' : null;
     if (!dir) return null;
     const strength = mod.startsWith('slight') ? 'light' : mod.startsWith('sharp') ? 'strong' : 'normal';
     const word = dir === 'left' ? 'Left' : 'Right';
     const label = strength === 'light' ? `Slight ${word.toLowerCase()}` : strength === 'strong' ? `Sharp ${word.toLowerCase()}` : word;
-    return { dir, strength, label };
+    return { dir, strength, level: LEVEL[strength], label };
+  }
+
+  // Motion-cue intensity (0..1) -> number of dots to show at that edge (0–3).
+  function dotCount(intensity) {
+    if (!(intensity > 0)) return 0;
+    if (intensity < 1 / 3) return 1;
+    if (intensity < 2 / 3) return 2;
+    return 3;
   }
 
   // OSRM /route response (geometries=geojson, steps=true) -> route.
@@ -597,6 +632,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
             index: i,
             dir: m.dir,
             strength: m.strength,
+            level: m.level,
             label: m.label,
             road: m.road,
             fireInMs: Math.round(fireInSec * 1000),
@@ -897,7 +933,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
               steps: [
                 { name: 'Demo Ave', maneuver: { type: 'depart', location: [corners[0].lon, corners[0].lat] } },
                 { name: 'Sample St', maneuver: { type: 'turn', modifier: 'left', location: [corners[1].lon, corners[1].lat] } },
-                { name: 'Test Rd', maneuver: { type: 'turn', modifier: 'right', location: [corners[2].lon, corners[2].lat] } },
+                { name: 'Test Rd', maneuver: { type: 'turn', modifier: 'sharp right', location: [corners[2].lon, corners[2].lat] } },
                 { name: '', maneuver: { type: 'arrive', location: [corners[3].lon, corners[3].lat] } },
               ],
             },
@@ -937,6 +973,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     haversine,
     projectOnSegment,
     classifyManeuver,
+    dotCount,
     buildRoute,
     RouteTracker,
     MotionProcessor,
@@ -968,6 +1005,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     ratingEveryMin: 2,
     vibrate: true,
     motionCues: true,
+    colorLevels: false,
     debug: false,
     safetyAck: false,
   };
@@ -1046,18 +1084,23 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
   /* ------------------------------------------------------------ Haptics */
 
-  const PATTERNS = {
-    left: [90, 70, 90],
-    right: [260],
-    roundabout: [60, 50, 60, 50, 60],
-    uturn: [260, 80, 260],
-    stop: [500],
-    prompt: [40],
-  };
-  function buzz(name) {
+  // Direction by pulse length (left short, right long); strength by pulse count (1–3),
+  // matching the number of chevrons on screen.
+  function hapticPattern(dir, level = 2) {
+    const n = Math.max(1, Math.min(3, level));
+    const train = (on, gap) => Array.from({ length: n * 2 - 1 }, (_, i) => (i % 2 === 0 ? on : gap));
+    if (dir === 'left') return train(90, 90);
+    if (dir === 'right') return train(260, 110);
+    if (dir === 'roundabout') return [90, 90, 260, 110, 90];
+    if (dir === 'uturn') return [260, 110, 260, 110, 260];
+    if (dir === 'stop') return [600];
+    if (dir === 'prompt') return [40];
+    return [120];
+  }
+  function buzz(name, level) {
     if (!store.settings.vibrate || typeof navigator.vibrate !== 'function') return;
     try {
-      navigator.vibrate(PATTERNS[name] || [100]);
+      navigator.vibrate(hapticPattern(name, level));
     } catch (_) {
       /* Some browsers throw if called without user activation; cues still show on screen. */
     }
@@ -1069,7 +1112,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
   function showTurn(ev) {
     const el = $('#turn-cue');
     el.dataset.dir = ev.dir;
-    el.dataset.strength = ev.strength;
+    el.dataset.level = String(ev.level || 2);
     $('#turn-label').textContent = ev.road && ev.dir !== 'stop' ? `${ev.label} onto ${ev.road}` : ev.label;
     el.classList.remove('show');
     void el.offsetWidth; // restart the animation
@@ -1077,12 +1120,17 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     clearTimeout(turnTimer);
     turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
-  function setGlow(cue) {
-    const s = $('#ride').style;
-    s.setProperty('--g-left', cue ? cue.left.toFixed(2) : 0);
-    s.setProperty('--g-right', cue ? cue.right.toFixed(2) : 0);
-    s.setProperty('--g-top', cue ? cue.speeding.toFixed(2) : 0);
-    s.setProperty('--g-bottom', cue ? cue.braking.toFixed(2) : 0);
+  // Dots at the edge the car pushes you toward: bottom = braking, top = speeding up.
+  function setDots(cue) {
+    const set = (side, v) => {
+      const el = $(`.dots.${side}`);
+      const n = String(cue ? E.dotCount(v) : 0);
+      if (el.dataset.n !== n) el.dataset.n = n;
+    };
+    set('left', cue && cue.left);
+    set('right', cue && cue.right);
+    set('top', cue && cue.speeding);
+    set('bottom', cue && cue.braking);
   }
 
   /* ------------------------------------------------------------- Sensors */
@@ -1261,10 +1309,10 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       } else if (ev.kind === 'turn') {
         const timer = setTimeout(() => {
           if (!session || session.ended) return;
-          logCue('turn', { dir: ev.dir, label: ev.label });
+          logCue('turn', { dir: ev.dir, level: ev.level, label: ev.label });
           if (cuesVisible()) {
             showTurn(ev);
-            buzz(ev.dir);
+            buzz(ev.dir, ev.level);
           }
         }, ev.fireInMs * scale);
         session.timers.push(timer);
@@ -1284,7 +1332,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setGlow(out.cue);
+    if (cuesVisible() && store.settings.motionCues) setDots(out.cue);
   }
 
   function updateRideGps(fix) {
@@ -1363,7 +1411,8 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     if (!session.tracker && session.condition === 'cues') {
       $('#ride-note').textContent += session.motionProc ? 'No destination: movement cues only.' : '';
     }
-    setGlow(null);
+    setDots(null);
+    $('#ride').classList.toggle('color-levels', !!store.settings.colorLevels);
     keepAwake(true);
     gps.listeners.add(handleFix);
     motion.listeners.add(handleMotion);
@@ -1398,7 +1447,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     gps.listeners.delete(handleFix);
     motion.listeners.delete(handleMotion);
     keepAwake(false);
-    setGlow(null);
+    setDots(null);
     closePrompt();
   }
 
@@ -1452,6 +1501,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
         leadSec: store.settings.leadSec,
         mount: store.settings.mount,
         motionCues: store.settings.motionCues,
+        colorLevels: store.settings.colorLevels,
         vibrate: store.settings.vibrate,
         hadRoute: !!session.route,
         routeKm: session.route ? Math.round(session.route.length / 100) / 10 : null,
@@ -1841,6 +1891,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     $('#interval').value = String(s.ratingEveryMin);
     $('#opt-vibrate').checked = s.vibrate;
     $('#opt-motion').checked = s.motionCues;
+    $('#opt-color').checked = s.colorLevels;
     $('#opt-debug').checked = s.debug;
     $('#data-count').textContent = `${store.rides.length} rides stored on this phone.`;
   };
@@ -1853,7 +1904,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     store.settings.ratingEveryMin = Number(e.target.value);
     store.save();
   });
-  [['#opt-vibrate', 'vibrate'], ['#opt-motion', 'motionCues'], ['#opt-debug', 'debug']].forEach(([sel, key]) =>
+  [['#opt-vibrate', 'vibrate'], ['#opt-motion', 'motionCues'], ['#opt-color', 'colorLevels'], ['#opt-debug', 'debug']].forEach(([sel, key]) =>
     $(sel).addEventListener('change', (e) => {
       store.settings[key] = e.target.checked;
       store.save();
@@ -1874,7 +1925,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
   buildScale();
   show('home');
   // Test hook: lets the automated browser test drive the demo without waiting in real time.
-  window.__andar = { store, get session() { return session; }, E };
+  window.__andar = { store, get session() { return session; }, E, hapticPattern };
 })();
 </script>
 </body>
