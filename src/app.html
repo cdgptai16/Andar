@@ -155,7 +155,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
 /* Movement happening now: "scenery" dots along both side edges that slide like the world
    outside the window (car turns left -> dots slide right; speeds up -> dots slide down). */
-.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 250ms linear; }
+.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 100ms linear; }
 .scenery .field { position: absolute; top: 12%; bottom: 18%; display: grid; grid-template-columns: repeat(2, 10px); grid-auto-rows: 1fr; gap: 0 16px; align-items: center; will-change: transform; }
 .scenery .field.l { left: calc(48px + env(safe-area-inset-left, 0px)); }
 .scenery .field.r { right: calc(48px + env(safe-area-inset-right, 0px)); }

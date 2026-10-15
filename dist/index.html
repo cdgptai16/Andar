@@ -155,7 +155,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
 /* Movement happening now: "scenery" dots along both side edges that slide like the world
    outside the window (car turns left -> dots slide right; speeds up -> dots slide down). */
-.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 250ms linear; }
+.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 100ms linear; }
 .scenery .field { position: absolute; top: 12%; bottom: 18%; display: grid; grid-template-columns: repeat(2, 10px); grid-auto-rows: 1fr; gap: 0 16px; align-items: center; will-change: transform; }
 .scenery .field.l { left: calc(48px + env(safe-area-inset-left, 0px)); }
 .scenery .field.r { right: calc(48px + env(safe-area-inset-right, 0px)); }
@@ -692,7 +692,8 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
   const MOTION_DEFAULTS = {
     mount: 'upright',
-    tauSec: 0.35, // smoothing time constant
+    tauSec: 0.35, // smoothing for deciding when a cue starts/stops (steady, ignores bumps)
+    fastTauSec: 0.06, // smoothing for on-screen motion: ~60 ms, just enough to remove sensor jitter
     onThreshold: 1.2, // m/s² to start a cue (~0.12 g, a firm stop or brisk turn)
     offThreshold: 0.8,
     fullScale: 3.0, // m/s² that maps to full cue intensity
@@ -707,6 +708,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       this.left = null;
       this.flip = 1; // -1 if GPS shows the mount is backwards
       this.f = { long: 0, lat: 0 };
+      this.fast = { long: 0, lat: 0 };
       this.lastT = null;
       this.active = { long: false, lat: false };
     }
@@ -736,6 +738,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       this.forward = vec.unit(horiz);
       this.left = vec.unit(vec.cross(this.up, this.forward));
       this.f = { long: 0, lat: 0 };
+      this.fast = { long: 0, lat: 0 };
       this.lastT = null;
       return { tiltDeg: Math.round((Math.acos(Math.min(1, vec.norm(horiz))) * 180) / Math.PI) };
     }
@@ -749,9 +752,17 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
       const dt = this.lastT === null ? 0 : Math.max(0, Math.min(0.5, (t - this.lastT) / 1000));
       this.lastT = t;
       const k = dt === 0 ? 1 : 1 - Math.exp(-dt / this.o.tauSec);
+      const kf = dt === 0 ? 1 : 1 - Math.exp(-dt / this.o.fastTauSec);
       this.f.long += k * (long - this.f.long);
       this.f.lat += k * (lat - this.f.lat);
-      return { long: this.f.long, lat: this.f.lat, cue: this._cue() };
+      this.fast.long += kf * (long - this.fast.long);
+      this.fast.lat += kf * (lat - this.fast.lat);
+      return {
+        long: this.f.long,
+        lat: this.f.lat,
+        fast: { long: this.fast.long, lat: this.fast.lat },
+        cue: this._cue(),
+      };
     }
 
     _cue() {
@@ -777,6 +788,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     reverse() {
       this.flip *= -1;
       this.f = { long: -this.f.long, lat: -this.f.lat };
+      this.fast = { long: -this.fast.long, lat: -this.fast.lat };
     }
   }
 
@@ -1358,7 +1370,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setScenery(out);
+    if (cuesVisible() && store.settings.motionCues) setScenery(out.fast);
   }
 
   function updateRideGps(fix) {
@@ -1718,9 +1730,17 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     session.demoTimer = setInterval(() => {
       if (!session || session.ended) return;
       simT += tickMs * DEMO_SPEEDUP;
-      const step = timeline[Math.min(i, timeline.length - 1)];
-      // Car-frame acceleration -> what a flat phone would read (left = -x, forward = +y).
-      handleMotion([-step.lat, step.long, G], performance.now());
+      // Ease between per-second samples so the simulated push rises and falls smoothly
+      // instead of jumping, then convert car-frame acceleration to what a flat phone reads
+      // (left = -x, forward = +y).
+      const cur = timeline[Math.min(i, timeline.length - 1)];
+      const prev = timeline[Math.max(0, i - 1)];
+      const span = Math.max(1, cur.t - prev.t);
+      const f = Math.max(0, Math.min(1, 1 - (cur.t - simT) / span));
+      const ease = f * f * (3 - 2 * f);
+      const long = prev.long + (cur.long - prev.long) * ease;
+      const lat = prev.lat + (cur.lat - prev.lat) * ease;
+      handleMotion([-lat, long, G], performance.now());
       if (simT >= timeline[Math.min(i, timeline.length - 1)].t) {
         if (i < timeline.length) {
           session.lastFixAt = Date.now();

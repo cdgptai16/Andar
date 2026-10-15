@@ -192,6 +192,19 @@ test('MotionProcessor works with a tilted mount', () => {
   near(out.long, -2.0, 0.05);
 });
 
+test('MotionProcessor fast signal tracks motion almost immediately', () => {
+  const p = new E.MotionProcessor({ mount: 'flat' });
+  p.calibrate(still('flat'));
+  let out = p.push(reading(p, 'flat', 0, 0), 0);
+  // Sudden 2.5 m/s² brake, sampled at 60 Hz. After 100 ms:
+  for (let t = 1000 / 60; t <= 100; t += 1000 / 60) out = p.push(reading(p, 'flat', -2.5, 0), t);
+  assert.ok(out.fast.long < -1.8, `fast signal should be >70% there, got ${out.fast.long.toFixed(2)}`);
+  assert.ok(out.long > -1.0, `cue signal stays steady, got ${out.long.toFixed(2)}`);
+  // And it lets go just as fast when the push stops.
+  for (let t = 100 + 1000 / 60; t <= 200; t += 1000 / 60) out = p.push(reading(p, 'flat', 0, 0), t);
+  assert.ok(Math.abs(out.fast.long) < 0.7, `fast signal released, got ${out.fast.long.toFixed(2)}`);
+});
+
 test('MotionProcessor rejects bad calibration', () => {
   const p = new E.MotionProcessor({ mount: 'upright' });
   assert.throws(() => p.calibrate([[0, G, 0]]), /Not enough/);

@@ -354,7 +354,7 @@
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setScenery(out);
+    if (cuesVisible() && store.settings.motionCues) setScenery(out.fast);
   }
 
   function updateRideGps(fix) {
@@ -714,9 +714,17 @@
     session.demoTimer = setInterval(() => {
       if (!session || session.ended) return;
       simT += tickMs * DEMO_SPEEDUP;
-      const step = timeline[Math.min(i, timeline.length - 1)];
-      // Car-frame acceleration -> what a flat phone would read (left = -x, forward = +y).
-      handleMotion([-step.lat, step.long, G], performance.now());
+      // Ease between per-second samples so the simulated push rises and falls smoothly
+      // instead of jumping, then convert car-frame acceleration to what a flat phone reads
+      // (left = -x, forward = +y).
+      const cur = timeline[Math.min(i, timeline.length - 1)];
+      const prev = timeline[Math.max(0, i - 1)];
+      const span = Math.max(1, cur.t - prev.t);
+      const f = Math.max(0, Math.min(1, 1 - (cur.t - simT) / span));
+      const ease = f * f * (3 - 2 * f);
+      const long = prev.long + (cur.long - prev.long) * ease;
+      const lat = prev.lat + (cur.lat - prev.lat) * ease;
+      handleMotion([-lat, long, G], performance.now());
       if (simT >= timeline[Math.min(i, timeline.length - 1)].t) {
         if (i < timeline.length) {
           session.lastFixAt = Date.now();

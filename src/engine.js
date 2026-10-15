@@ -271,7 +271,8 @@
 
   const MOTION_DEFAULTS = {
     mount: 'upright',
-    tauSec: 0.35, // smoothing time constant
+    tauSec: 0.35, // smoothing for deciding when a cue starts/stops (steady, ignores bumps)
+    fastTauSec: 0.06, // smoothing for on-screen motion: ~60 ms, just enough to remove sensor jitter
     onThreshold: 1.2, // m/s² to start a cue (~0.12 g, a firm stop or brisk turn)
     offThreshold: 0.8,
     fullScale: 3.0, // m/s² that maps to full cue intensity
@@ -286,6 +287,7 @@
       this.left = null;
       this.flip = 1; // -1 if GPS shows the mount is backwards
       this.f = { long: 0, lat: 0 };
+      this.fast = { long: 0, lat: 0 };
       this.lastT = null;
       this.active = { long: false, lat: false };
     }
@@ -315,6 +317,7 @@
       this.forward = vec.unit(horiz);
       this.left = vec.unit(vec.cross(this.up, this.forward));
       this.f = { long: 0, lat: 0 };
+      this.fast = { long: 0, lat: 0 };
       this.lastT = null;
       return { tiltDeg: Math.round((Math.acos(Math.min(1, vec.norm(horiz))) * 180) / Math.PI) };
     }
@@ -328,9 +331,17 @@
       const dt = this.lastT === null ? 0 : Math.max(0, Math.min(0.5, (t - this.lastT) / 1000));
       this.lastT = t;
       const k = dt === 0 ? 1 : 1 - Math.exp(-dt / this.o.tauSec);
+      const kf = dt === 0 ? 1 : 1 - Math.exp(-dt / this.o.fastTauSec);
       this.f.long += k * (long - this.f.long);
       this.f.lat += k * (lat - this.f.lat);
-      return { long: this.f.long, lat: this.f.lat, cue: this._cue() };
+      this.fast.long += kf * (long - this.fast.long);
+      this.fast.lat += kf * (lat - this.fast.lat);
+      return {
+        long: this.f.long,
+        lat: this.f.lat,
+        fast: { long: this.fast.long, lat: this.fast.lat },
+        cue: this._cue(),
+      };
     }
 
     _cue() {
@@ -356,6 +367,7 @@
     reverse() {
       this.flip *= -1;
       this.f = { long: -this.f.long, lat: -this.f.lat };
+      this.fast = { long: -this.fast.long, lat: -this.fast.lat };
     }
   }
 
