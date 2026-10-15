@@ -134,6 +134,19 @@ test('dotCount maps movement strength to 0–3 dots', () => {
   assert.equal(E.dotCount(1), 3);
 });
 
+test('sceneryOffset moves dots like the world outside the window', () => {
+  const left = E.sceneryOffset(0, 2); // turning left
+  assert.ok(left.dx > 0 && left.dy === 0, 'left turn -> dots slide right');
+  const right = E.sceneryOffset(0, -2);
+  assert.ok(right.dx < 0, 'right turn -> dots slide left');
+  assert.ok(E.sceneryOffset(2, 0).dy > 0, 'speeding up -> dots slide down');
+  assert.ok(E.sceneryOffset(-2, 0).dy < 0, 'braking -> dots slide up');
+  assert.equal(E.sceneryOffset(0.1, 0.1).opacity, 0, 'tiny bumps stay invisible');
+  assert.equal(E.sceneryOffset(-3, 0).opacity, 1);
+  assert.equal(E.sceneryOffset(-50, 0).dy, -44, 'offset is capped');
+  assert.deepEqual(E.sceneryOffset(NaN, undefined), { dx: 0, dy: 0, opacity: 0 });
+});
+
 /* ----------------------------------------------------- MotionProcessor */
 
 const G = 9.80665;

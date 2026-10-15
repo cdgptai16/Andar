@@ -85,7 +85,7 @@ async function startMotionFeed(page) {
       k += 1;
       window.dispatchEvent(
         new DeviceMotionEvent('devicemotion', {
-          accelerationIncludingGravity: { x: 0.02 * Math.sin(k), y: 9.81, z: window.__accZ || 0.03 },
+          accelerationIncludingGravity: { x: window.__accX || 0.02 * Math.sin(k), y: 9.81, z: window.__accZ || 0.03 },
         })
       );
     }, 20);
@@ -177,15 +177,19 @@ await check('cues-on ride shows turn cues, saves, and schedules a cues-off ride 
     window.__andar.hapticPattern('right', 3),
   ]);
   assert.deepEqual(pat, [[90], [90, 90, 90], [260, 110, 260, 110, 260]]);
-  // Hard braking now: dots appear at the bottom edge only.
-  await page.evaluate(() => (window.__accZ = 2.8));
-  await page.waitForFunction(() => Number(document.querySelector('.dots.bottom').dataset.n) >= 2, null, { timeout: 4000 });
-  const sides = await page.evaluate(() =>
-    ['left', 'right', 'top'].map((s) => document.querySelector(`.dots.${s}`).dataset.n)
-  );
-  assert.deepEqual(sides, ['0', '0', '0']);
-  await page.evaluate(() => (window.__accZ = 0.03));
-  await page.waitForFunction(() => document.querySelector('.dots.bottom').dataset.n === '0', null, { timeout: 4000 });
+  // Scenery dots: braking slides them up, a left turn slides them right, calm hides them.
+  const scen = () => page.evaluate(() => {
+    const el = document.querySelector('#scenery');
+    return { dx: Number(el.dataset.dx), dy: Number(el.dataset.dy), op: Number(el.style.opacity) };
+  });
+  await page.evaluate(() => (window.__accZ = 2.8)); // upright phone: +z = car slowing down
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').dataset.dy) < -20, null, { timeout: 4000 });
+  let sc = await scen();
+  assert.ok(sc.op > 0.5 && Math.abs(sc.dx) < 3, JSON.stringify(sc));
+  await page.evaluate(() => { window.__accZ = 0.03; window.__accX = -2.5; }); // car turning left
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').dataset.dx) > 20, null, { timeout: 4000 });
+  await page.evaluate(() => (window.__accX = 0));
+  await page.waitForFunction(() => Number(document.querySelector('#scenery').style.opacity) === 0, null, { timeout: 4000 });
   await endAndSave(page);
 
   const ride = await page.evaluate(() => window.__andar.store.rides[0]);

@@ -129,17 +129,30 @@
     clearTimeout(turnTimer);
     turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
-  // Dots at the edge the car pushes you toward: bottom = braking, top = speeding up.
-  function setDots(cue) {
-    const set = (side, v) => {
-      const el = $(`.dots.${side}`);
-      const n = String(cue ? E.dotCount(v) : 0);
-      if (el.dataset.n !== n) el.dataset.n = n;
-    };
-    set('left', cue && cue.left);
-    set('right', cue && cue.right);
-    set('top', cue && cue.speeding);
-    set('bottom', cue && cue.braking);
+  // Scenery dots: drawn once per animation frame from the latest smoothed motion,
+  // so sensor bursts never queue up visual work.
+  let sceneryTarget = null;
+  let sceneryRaf = null;
+  function setScenery(motionOut) {
+    sceneryTarget = motionOut;
+    if (sceneryRaf === null) sceneryRaf = requestAnimationFrame(drawScenery);
+  }
+  function drawScenery() {
+    sceneryRaf = null;
+    const el = $('#scenery');
+    if (!sceneryTarget) {
+      el.style.opacity = '0';
+      $$('#scenery .field').forEach((f) => (f.style.transform = 'translate(0px, 0px)'));
+      el.dataset.dx = '0';
+      el.dataset.dy = '0';
+      return;
+    }
+    const o = E.sceneryOffset(sceneryTarget.long, sceneryTarget.lat);
+    el.style.opacity = o.opacity.toFixed(2);
+    const t = `translate(${o.dx.toFixed(1)}px, ${o.dy.toFixed(1)}px)`;
+    $$('#scenery .field').forEach((f) => (f.style.transform = t));
+    el.dataset.dx = o.dx.toFixed(1);
+    el.dataset.dy = o.dy.toFixed(1);
   }
 
   /* ------------------------------------------------------------- Sensors */
@@ -341,7 +354,7 @@
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setDots(out.cue);
+    if (cuesVisible() && store.settings.motionCues) setScenery(out);
   }
 
   function updateRideGps(fix) {
@@ -420,7 +433,7 @@
     if (!session.tracker && session.condition === 'cues') {
       $('#ride-note').textContent += session.motionProc ? 'No destination: movement cues only.' : '';
     }
-    setDots(null);
+    setScenery(null);
     $('#ride').classList.toggle('color-levels', !!store.settings.colorLevels);
     keepAwake(true);
     gps.listeners.add(handleFix);
@@ -456,7 +469,7 @@
     gps.listeners.delete(handleFix);
     motion.listeners.delete(handleMotion);
     keepAwake(false);
-    setDots(null);
+    setScenery(null);
     closePrompt();
   }
 

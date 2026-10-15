@@ -153,16 +153,15 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 #ride.color-levels #turn-cue[data-level="2"] { color: var(--lvl2); }
 #ride.color-levels #turn-cue[data-level="3"] { color: var(--lvl3); }
 
-/* Movement happening now: up to 3 dots at the edge the car pushes you toward. */
-.dots { position: absolute; display: flex; gap: 14px; pointer-events: none; z-index: 11; }
-.dots span { display: none; width: 14px; height: 14px; border-radius: 50%; background: var(--cue); }
-.dots[data-n="1"] span:nth-child(1),
-.dots[data-n="2"] span:nth-child(-n+2),
-.dots[data-n="3"] span { display: block; }
-.dots.left { left: max(10px, env(safe-area-inset-left, 0px)); top: 50%; transform: translateY(-50%); flex-direction: column; }
-.dots.right { right: max(10px, env(safe-area-inset-right, 0px)); top: 50%; transform: translateY(-50%); flex-direction: column; }
-.dots.top { top: calc(56px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); }
-.dots.bottom { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); }
+/* Movement happening now: "scenery" dots along both side edges that slide like the world
+   outside the window (car turns left -> dots slide right; speeds up -> dots slide down). */
+.scenery { position: absolute; inset: 0; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 250ms linear; }
+.scenery .field { position: absolute; top: 12%; bottom: 18%; display: grid; grid-template-columns: repeat(2, 10px); grid-auto-rows: 1fr; gap: 0 16px; align-items: center; will-change: transform; }
+.scenery .field.l { left: calc(48px + env(safe-area-inset-left, 0px)); }
+.scenery .field.r { right: calc(48px + env(safe-area-inset-right, 0px)); }
+/* A turn warning outranks the moving dots: dim them while chevrons show. */
+#ride:has(#turn-cue.show) .scenery .field { filter: opacity(0.2); }
+.scenery i { width: 10px; height: 10px; border-radius: 50%; background: var(--cue); display: block; }
 
 /* Rating sheet */
 #rate { position: absolute; inset: 0; z-index: 10; background: var(--bg); display: grid; align-content: center; }
@@ -276,8 +275,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
 
 <!-- ============================== RIDE ============================== -->
 <section class="screen" id="ride" hidden>
-  <div class="dots left" data-n="0"><span></span><span></span><span></span></div><div class="dots right" data-n="0"><span></span><span></span><span></span></div>
-  <div class="dots top" data-n="0"><span></span><span></span><span></span></div><div class="dots bottom" data-n="0"><span></span><span></span><span></span></div>
+  <div class="scenery" id="scenery"><div class="field l"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="field r"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
 
   <div id="turn-cue" data-dir="left" data-level="2">
     <div class="chev l"><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg><svg viewBox="0 0 60 100" aria-hidden="true"><path d="M44 14 L14 50 L44 86" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -406,7 +404,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     </div>
     <div class="card">
       <label class="choice"><input type="checkbox" id="opt-vibrate"><span><b>Vibrate with turn cues</b><br><span class="muted small">Left turns buzz short, right turns buzz long. The number of buzzes matches the chevrons: 1 slight, 2 normal, 3 sharp. Arriving: one very long buzz.</span></span></label>
-      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Up to three dots appear at the edge the car is pushing you toward. More dots means a stronger push.</span></span></label>
+      <label class="choice"><input type="checkbox" id="opt-motion"><span><b>Show braking and turning as they happen</b><br><span class="muted small">Dots along both sides move like the scenery outside: when the car turns left they slide right, when it speeds up they slide down, when it brakes they slide up.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-color"><span><b>Color by strength (phone only)</b><br><span class="muted small">Green, amber, orange for 1, 2, 3 chevrons. The glasses show green only, so the count is what matters. If you turn this on, keep it on for the whole trial.</span></span></label>
       <label class="choice"><input type="checkbox" id="opt-debug"><span><b>Show sensor numbers</b><br><span class="muted small">For troubleshooting.</span></span></label>
     </div>
@@ -515,7 +513,21 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     return { dir, strength, level: LEVEL[strength], label };
   }
 
-  // Motion-cue intensity (0..1) -> number of dots to show at that edge (0–3).
+  // "Scenery" dots (like iPhone Vehicle Motion Cues): the dots behave like the world outside
+  // the window. Car turns left -> dots slide right. Car speeds up -> dots slide down; brakes -> up.
+  // long/lat in m/s² (lat > 0 = turning left). Returns pixel offsets and an opacity that
+  // fades the dots in only when there is motion worth showing.
+  function sceneryOffset(long, lat, { gain = 14, max = 44, fadeFrom = 0.35, fullAt = 1.4 } = {}) {
+    const clamp = (v) => Math.max(-max, Math.min(max, v));
+    const dx = clamp((Number.isFinite(lat) ? lat : 0) * gain);
+    const dy = clamp((Number.isFinite(long) ? long : 0) * gain);
+    const mag = Math.hypot(Number.isFinite(long) ? long : 0, Number.isFinite(lat) ? lat : 0);
+    const opacity = Math.max(0, Math.min(1, (mag - fadeFrom) / (fullAt - fadeFrom)));
+    return { dx, dy, opacity };
+  }
+
+  // Motion-cue intensity (0..1) -> number of dots (0–3). Used for the glasses lens,
+  // which cannot animate smoothly, so it shows a count instead of moving dots.
   function dotCount(intensity) {
     if (!(intensity > 0)) return 0;
     if (intensity < 1 / 3) return 1;
@@ -974,6 +986,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     projectOnSegment,
     classifyManeuver,
     dotCount,
+    sceneryOffset,
     buildRoute,
     RouteTracker,
     MotionProcessor,
@@ -1120,17 +1133,30 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     clearTimeout(turnTimer);
     turnTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
-  // Dots at the edge the car pushes you toward: bottom = braking, top = speeding up.
-  function setDots(cue) {
-    const set = (side, v) => {
-      const el = $(`.dots.${side}`);
-      const n = String(cue ? E.dotCount(v) : 0);
-      if (el.dataset.n !== n) el.dataset.n = n;
-    };
-    set('left', cue && cue.left);
-    set('right', cue && cue.right);
-    set('top', cue && cue.speeding);
-    set('bottom', cue && cue.braking);
+  // Scenery dots: drawn once per animation frame from the latest smoothed motion,
+  // so sensor bursts never queue up visual work.
+  let sceneryTarget = null;
+  let sceneryRaf = null;
+  function setScenery(motionOut) {
+    sceneryTarget = motionOut;
+    if (sceneryRaf === null) sceneryRaf = requestAnimationFrame(drawScenery);
+  }
+  function drawScenery() {
+    sceneryRaf = null;
+    const el = $('#scenery');
+    if (!sceneryTarget) {
+      el.style.opacity = '0';
+      $$('#scenery .field').forEach((f) => (f.style.transform = 'translate(0px, 0px)'));
+      el.dataset.dx = '0';
+      el.dataset.dy = '0';
+      return;
+    }
+    const o = E.sceneryOffset(sceneryTarget.long, sceneryTarget.lat);
+    el.style.opacity = o.opacity.toFixed(2);
+    const t = `translate(${o.dx.toFixed(1)}px, ${o.dy.toFixed(1)}px)`;
+    $$('#scenery .field').forEach((f) => (f.style.transform = t));
+    el.dataset.dx = o.dx.toFixed(1);
+    el.dataset.dy = o.dy.toFixed(1);
   }
 
   /* ------------------------------------------------------------- Sensors */
@@ -1332,7 +1358,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     session.lastMotion = out;
     motionPeak.long = Math.max(motionPeak.long, Math.abs(out.long));
     motionPeak.lat = Math.max(motionPeak.lat, Math.abs(out.lat));
-    if (cuesVisible() && store.settings.motionCues) setDots(out.cue);
+    if (cuesVisible() && store.settings.motionCues) setScenery(out);
   }
 
   function updateRideGps(fix) {
@@ -1411,7 +1437,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     if (!session.tracker && session.condition === 'cues') {
       $('#ride-note').textContent += session.motionProc ? 'No destination: movement cues only.' : '';
     }
-    setDots(null);
+    setScenery(null);
     $('#ride').classList.toggle('color-levels', !!store.settings.colorLevels);
     keepAwake(true);
     gps.listeners.add(handleFix);
@@ -1447,7 +1473,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); }
     gps.listeners.delete(handleFix);
     motion.listeners.delete(handleMotion);
     keepAwake(false);
-    setDots(null);
+    setScenery(null);
     closePrompt();
   }
 

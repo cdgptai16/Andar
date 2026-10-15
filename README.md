@@ -4,7 +4,7 @@
 
 Andar tests one question: **do cues that warn you about turns and braking before they happen lower your car sickness?**
 
-It runs in Chrome on your Android phone. On "cues on" rides it shows chevrons and vibrates about 2 seconds before each turn on your route (1, 2 or 3 for slight, normal or sharp), and shows dots at the screen edge when the car brakes or turns. On "cues off" rides it records the same data but shows nothing, so you have something to compare against. After enough rides it tells you whether the cues helped.
+It runs in Chrome on your Android phone. On "cues on" rides it shows chevrons and vibrates about 2 seconds before each turn on your route (1, 2 or 3 for slight, normal or sharp), and moves a field of dots like passing scenery when the car brakes or turns. On "cues off" rides it records the same data but shows nothing, so you have something to compare against. After enough rides it tells you whether the cues helped.
 
 The decision logic lives in `src/engine.js` with no phone-specific code, so the same engine moves to the glasses in Phase 2.
 
@@ -41,7 +41,7 @@ When you have 6+ usable rides in each mode, **Results** gives one of four verdic
 
 - **Strength is shown by count, never by color alone**: 1 = slight, 2 = normal, 3 = sharp. This works on the green-only glasses display and for color-blind users. An optional phone-only color layer (green, amber, orange) can be turned on in Settings; if you use it, keep it on for the whole trial.
 - **Before turns** (needs a destination): the route comes from OSRM; the phone's GPS tracks where you are along it, estimates when you'll reach each turn, and fires the cue 2 seconds early, correcting for GPS delay. Chevrons appear on the side of the turn (1, 2 or 3 of them) and the phone buzzes the same number of times: short buzzes for left, long buzzes for right. Roundabouts and U-turns show chevrons on both sides; arriving shows three dots and one very long buzz. If you leave the route, turn cues pause.
-- **During braking and turning** (always): the phone's motion sensor, calibrated at the start, reports the car's acceleration. Up to three dots appear at the edge the car pushes you toward: bottom = braking, top = speeding up, left/right = turning. More dots means a stronger push. If the phone was mounted backwards, the app detects it from GPS speed changes and corrects itself.
+- **During braking and turning** (always): like iPhone's Vehicle Motion Cues, two columns of dots on each side behave like the scenery outside the window. When the car turns left they slide right; when it speeds up they slide down; when it brakes they slide up. They fade in only when there is real motion and dim while a turn warning shows. The phone's motion sensor is calibrated at the start; if the phone was mounted backwards, the app detects it from GPS speed changes and corrects itself. On the glasses (Phase 2), which can't animate smoothly, the same signal will be shown as 1–3 dots instead.
 
 ## Your data
 
@@ -52,7 +52,7 @@ This is a personal experiment, not a medical device.
 ## For developers
 
 ```
-npm test          # 26 engine unit tests + 4 browser end-to-end tests
+npm test          # 27 engine unit tests + 4 browser end-to-end tests
 npm run build     # inlines engine + app into dist/index.html (single file, no dependencies)
 ```
 

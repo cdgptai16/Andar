@@ -92,7 +92,21 @@
     return { dir, strength, level: LEVEL[strength], label };
   }
 
-  // Motion-cue intensity (0..1) -> number of dots to show at that edge (0–3).
+  // "Scenery" dots (like iPhone Vehicle Motion Cues): the dots behave like the world outside
+  // the window. Car turns left -> dots slide right. Car speeds up -> dots slide down; brakes -> up.
+  // long/lat in m/s² (lat > 0 = turning left). Returns pixel offsets and an opacity that
+  // fades the dots in only when there is motion worth showing.
+  function sceneryOffset(long, lat, { gain = 14, max = 44, fadeFrom = 0.35, fullAt = 1.4 } = {}) {
+    const clamp = (v) => Math.max(-max, Math.min(max, v));
+    const dx = clamp((Number.isFinite(lat) ? lat : 0) * gain);
+    const dy = clamp((Number.isFinite(long) ? long : 0) * gain);
+    const mag = Math.hypot(Number.isFinite(long) ? long : 0, Number.isFinite(lat) ? lat : 0);
+    const opacity = Math.max(0, Math.min(1, (mag - fadeFrom) / (fullAt - fadeFrom)));
+    return { dx, dy, opacity };
+  }
+
+  // Motion-cue intensity (0..1) -> number of dots (0–3). Used for the glasses lens,
+  // which cannot animate smoothly, so it shows a count instead of moving dots.
   function dotCount(intensity) {
     if (!(intensity > 0)) return 0;
     if (intensity < 1 / 3) return 1;
@@ -551,6 +565,7 @@
     projectOnSegment,
     classifyManeuver,
     dotCount,
+    sceneryOffset,
     buildRoute,
     RouteTracker,
     MotionProcessor,
